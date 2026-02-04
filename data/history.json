@@ -1,6 +1,190 @@
 {
   "history": [
     {
+      "id": "ml8d1czf4lxg3z7j7dm",
+      "song": {
+        "title": "Cundamani (Live)",
+        "artist": "Difarina Indra Adella",
+        "duration": 412101,
+        "timestamp": 1770229667067,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=p0KITDjbIn8"
+      },
+      "request": {
+        "id": "ml8cv7vmkzqnzll27jd",
+        "query": "cundamani",
+        "time": 1770229380514,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229651042,
+        "estimatedDuration": 311021
+      },
+      "timestamp": 1770229667067,
+      "duration": 412101
+    },
+    {
+      "id": "ml8d17dr3upemb85n2d",
+      "song": {
+        "title": "cundamani",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229659806,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=cundamani"
+      },
+      "request": {
+        "id": "ml8cv7vmkzqnzll27jd",
+        "query": "cundamani",
+        "time": 1770229380514,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229651042,
+        "estimatedDuration": 311021
+      },
+      "timestamp": 1770229659807,
+      "duration": 100000
+    },
+    {
+      "id": "ml8cwbn0xf8zlbhxevl",
+      "song": {
+        "title": "Satru (feat. Happy Asmara)",
+        "artist": "Denny Caknan",
+        "duration": 311000,
+        "timestamp": 1770229432044,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=d-QqQUiIBKI"
+      },
+      "request": {
+        "id": "ml8cuw3tkk1dwy1tx4h",
+        "query": "satru 1",
+        "time": 1770229365257,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229421840,
+        "estimatedDuration": 214000
+      },
+      "timestamp": 1770229432044,
+      "duration": 311000
+    },
+    {
+      "id": "ml8cw8d3oqg8xgtncws",
+      "song": {
+        "title": "satru 1",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229427799,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=satru+1"
+      },
+      "request": {
+        "id": "ml8cuw3tkk1dwy1tx4h",
+        "query": "satru 1",
+        "time": 1770229365257,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229421840,
+        "estimatedDuration": 214000
+      },
+      "timestamp": 1770229427799,
+      "duration": 100000
+    },
+    {
+      "id": "ml8cu1r3iyvqdhlcsp9",
+      "song": {
+        "title": "blue",
+        "artist": "yung kai",
+        "duration": 214000,
+        "timestamp": 1770229325917,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=MHCsrKA9gh8"
+      },
+      "request": {
+        "id": "ml8coeb0tts82oe7zer",
+        "query": "blue youn kai",
+        "time": 1770229062252,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229309794,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770229325919,
+      "duration": 214000
+    },
+    {
+      "id": "ml8cu0xjy613rv965hb",
+      "song": {
+        "title": "blue",
+        "artist": "yung kai",
+        "duration": 100000,
+        "timestamp": 1770229324849,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=MHCsrKA9gh8"
+      },
+      "request": {
+        "id": "ml8coeb0tts82oe7zer",
+        "query": "blue youn kai",
+        "time": 1770229062252,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229309794,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770229324855,
+      "duration": 100000
+    },
+    {
+      "id": "ml8ctxs8lx9yc21nx4",
+      "song": {
+        "title": "blue youn kai",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229320776,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=MHCsrKA9gh8"
+      },
+      "request": {
+        "id": "ml8coeb0tts82oe7zer",
+        "query": "blue youn kai",
+        "time": 1770229062252,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229309794,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770229320776,
+      "duration": 100000
+    },
+    {
+      "id": "ml8cttxifdgkowapox",
+      "song": {
+        "title": "blue yung kai lyrics",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229315782,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=blue+youn+kai"
+      },
+      "request": {
+        "id": "ml8coeb0tts82oe7zer",
+        "query": "blue youn kai",
+        "time": 1770229062252,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229309794,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770229315782,
+      "duration": 100000
+    },
+    {
       "id": "ml8cnspztchq2whv58",
       "song": {
         "title": "Cindai",
@@ -186,9 +370,9 @@
     }
   ],
   "stats": {
-    "totalRequests": 3,
-    "totalSongsPlayed": 8,
-    "totalPlayTime": 21
+    "totalRequests": 6,
+    "totalSongsPlayed": 16,
+    "totalPlayTime": 47
   },
-  "lastUpdated": 1770229034279
+  "lastUpdated": 1770229667067
 }

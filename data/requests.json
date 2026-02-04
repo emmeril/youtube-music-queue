@@ -1,22 +1,14 @@
 {
-  "queue": [
-    {
-      "id": "ml8coeb0tts82oe7zer",
-      "query": "blue youn kai",
-      "time": 1770229062252,
-      "status": "pending",
-      "addedBy": "::ffff:192.168.100.1"
-    }
-  ],
+  "queue": [],
   "activeRequest": {
-    "id": "ml8cmw1x3zobx57zas9",
-    "query": "cindai",
-    "time": 1770228991941,
+    "id": "ml8cv7vmkzqnzll27jd",
+    "query": "cundamani",
+    "time": 1770229380514,
     "status": "playing",
     "addedBy": "::ffff:192.168.100.1",
-    "startedAt": 1770228998795,
-    "estimatedDuration": 271000
+    "startedAt": 1770229651042,
+    "estimatedDuration": 311021
   },
-  "lockUntil": 1770229279795,
-  "lastUpdated": 1770229062252
+  "lockUntil": 1770229972063,
+  "lastUpdated": 1770229651042
 }
