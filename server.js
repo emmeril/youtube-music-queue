@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = 4786;
 
 // File untuk persistensi data
 const REQUESTS_FILE = path.join(__dirname, 'data', 'requests.json');

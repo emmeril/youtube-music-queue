@@ -1,6 +1,328 @@
 {
   "history": [
     {
+      "id": "ml8es2x46mgrcpukxem",
+      "song": {
+        "title": "Sewates Konco (feat. Destya Eka)",
+        "artist": "Lavora",
+        "duration": 304000,
+        "timestamp": 1770232593351,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=crzefAXKdgo"
+      },
+      "request": {
+        "id": "ml8ekjq0do8t2s3zize",
+        "query": "Sewates konco",
+        "time": 1770232241880,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232579713,
+        "estimatedDuration": 251000
+      },
+      "timestamp": 1770232593352,
+      "duration": 304000
+    },
+    {
+      "id": "ml8erwf74e2b3mngq6u",
+      "song": {
+        "title": "sewates konco",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770232584930,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=Sewates+konco"
+      },
+      "request": {
+        "id": "ml8ekjq0do8t2s3zize",
+        "query": "Sewates konco",
+        "time": 1770232241880,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232579713,
+        "estimatedDuration": 251000
+      },
+      "timestamp": 1770232584931,
+      "duration": 100000
+    },
+    {
+      "id": "ml8emluxudypjkfv04r",
+      "song": {
+        "title": "Creep",
+        "artist": "Radiohead",
+        "duration": 239000,
+        "timestamp": 1770232337951,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=9RfVp-GhKfs"
+      },
+      "request": {
+        "id": "ml8eidx7bxcggzv4am",
+        "query": "creep",
+        "time": 1770232141051,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232325464,
+        "estimatedDuration": 430961
+      },
+      "timestamp": 1770232337961,
+      "duration": 239000
+    },
+    {
+      "id": "ml8emgigib4cfsdvus",
+      "song": {
+        "title": "creep",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770232331032,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=creep"
+      },
+      "request": {
+        "id": "ml8eidx7bxcggzv4am",
+        "query": "creep",
+        "time": 1770232141051,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232325464,
+        "estimatedDuration": 430961
+      },
+      "timestamp": 1770232331032,
+      "duration": 100000
+    },
+    {
+      "id": "ml8emght1bok58yo4co",
+      "song": {
+        "title": "creep",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770232331008,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=creep"
+      },
+      "request": {
+        "id": "ml8eidx7bxcggzv4am",
+        "query": "creep",
+        "time": 1770232141051,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232325464,
+        "estimatedDuration": 430961
+      },
+      "timestamp": 1770232331009,
+      "duration": 100000
+    },
+    {
+      "id": "ml8ehz0vjjngrfhtb",
+      "song": {
+        "title": "DJ CINTA SATU MALAM X TOKYO DRIFT SOUND REZA FT. AS48 MENGKANE",
+        "artist": "Tunes ID RMX",
+        "duration": 200000,
+        "timestamp": 1770232121724,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=mcH1YXjjl7Q"
+      },
+      "request": {
+        "id": "ml8eg2evxlotk7gp9e",
+        "query": "cinta satu malam",
+        "time": 1770232032828,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232038169,
+        "estimatedDuration": 413921
+      },
+      "timestamp": 1770232121743,
+      "duration": 200000
+    },
+    {
+      "id": "ml8egg26p4b5y4mjbuq",
+      "song": {
+        "title": "DJ CINTA SATU MALAM X TOKYO DRIFT SOUND REZA FT. AS48 MENGKANE",
+        "artist": "Tunes ID RMX",
+        "duration": 199761,
+        "timestamp": 1770232050509,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=mcH1YXjjl7Q"
+      },
+      "request": {
+        "id": "ml8eg2evxlotk7gp9e",
+        "query": "cinta satu malam",
+        "time": 1770232032828,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232038169,
+        "estimatedDuration": 413921
+      },
+      "timestamp": 1770232050510,
+      "duration": 199761
+    },
+    {
+      "id": "ml8egbxi5y87rkm0v9",
+      "song": {
+        "title": "cinta satu malam",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770232045152,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=cinta+satu+malam"
+      },
+      "request": {
+        "id": "ml8eg2evxlotk7gp9e",
+        "query": "cinta satu malam",
+        "time": 1770232032828,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770232038169,
+        "estimatedDuration": 413921
+      },
+      "timestamp": 1770232045158,
+      "duration": 100000
+    },
+    {
+      "id": "ml8e553pue1gpqbblzo",
+      "song": {
+        "title": "Gusti kulo pun manut dalane | Satru lirik dan terjemahan",
+        "artist": "Play Lyric Indonesia",
+        "duration": 306141,
+        "timestamp": 1770231522847,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=mJIjc2BBEGw"
+      },
+      "request": {
+        "id": "ml8e4u5txn681s5j8f7",
+        "query": "satru",
+        "time": 1770231508913,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770231510653,
+        "estimatedDuration": 296000
+      },
+      "timestamp": 1770231523093,
+      "duration": 306141
+    },
+    {
+      "id": "ml8e50j8nofmz15gvy",
+      "song": {
+        "title": "satru",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770231517172,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=satru"
+      },
+      "request": {
+        "id": "ml8e4u5txn681s5j8f7",
+        "query": "satru",
+        "time": 1770231508913,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770231510653,
+        "estimatedDuration": 296000
+      },
+      "timestamp": 1770231517172,
+      "duration": 100000
+    },
+    {
+      "id": "ml8e2qt7zl51463qe7h",
+      "song": {
+        "title": "Cindai",
+        "artist": "Siti Nurhaliza",
+        "duration": 296000,
+        "timestamp": 1770231411259,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=r8_x6XczCko"
+      },
+      "request": {
+        "id": "ml8dvhwdyrmpnatl049",
+        "query": "Cindai",
+        "time": 1770231073117,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770231396790,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770231411260,
+      "duration": 296000
+    },
+    {
+      "id": "ml8e2l1y5bn4jl447il",
+      "song": {
+        "title": "cindai",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770231403797,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=Cindai"
+      },
+      "request": {
+        "id": "ml8dvhwdyrmpnatl049",
+        "query": "Cindai",
+        "time": 1770231073117,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770231396790,
+        "estimatedDuration": 100000
+      },
+      "timestamp": 1770231403798,
+      "duration": 100000
+    },
+    {
+      "id": "ml8dm7x9pi5c7x9gg1r",
+      "song": {
+        "title": "Rasah Bali (feat. Ena Vika)",
+        "artist": "Lavora",
+        "duration": 265000,
+        "timestamp": 1770230640282,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=ghgOe9OTte0"
+      },
+      "request": {
+        "id": "ml8dlxo7raxfqos8f8",
+        "query": "Rasah bali",
+        "time": 1770230626999,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770230629728,
+        "estimatedDuration": 211000
+      },
+      "timestamp": 1770230640285,
+      "duration": 265000
+    },
+    {
+      "id": "ml8dm3mmulh6fjoo72o",
+      "song": {
+        "title": "rasah bali",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770230634717,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=Rasah+bali"
+      },
+      "request": {
+        "id": "ml8dlxo7raxfqos8f8",
+        "query": "Rasah bali",
+        "time": 1770230626999,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770230629728,
+        "estimatedDuration": 211000
+      },
+      "timestamp": 1770230634718,
+      "duration": 100000
+    },
+    {
       "id": "ml8ddvvnr4kd5hgrneo",
       "song": {
         "title": "Creep",
@@ -485,9 +807,9 @@
     }
   ],
   "stats": {
-    "totalRequests": 8,
-    "totalSongsPlayed": 21,
-    "totalPlayTime": 63
+    "totalRequests": 15,
+    "totalSongsPlayed": 35,
+    "totalPlayTime": 106
   },
-  "lastUpdated": 1770230251427
+  "lastUpdated": 1770232593352
 }

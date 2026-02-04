@@ -1,8 +1,8 @@
 // ================= KONFIGURASI =================
 const CONFIG = {
-  SERVER_URL: 'http://localhost:3000',
-  UPDATE_INTERVAL: 2000, // 2 detik
-  REQUEST_CHECK_INTERVAL: 3000, // 3 detik
+  SERVER_URL: 'https://music.monse.co.id',
+  UPDATE_INTERVAL: 500, // 2 detik
+  REQUEST_CHECK_INTERVAL: 500, // 3 detik
   SEARCH_TIMEOUT: 15000, // 15 detik
   DEBUG: true
 };
