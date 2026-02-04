@@ -313,8 +313,8 @@ async function processRequests() {
 // Buat debug panel
 createDebugPanel();
 
-// Update lagu setiap 3 detik
-setInterval(updateCurrentSong, 3000);
+// Update lagu setiap 1 detik
+setInterval(updateCurrentSong, 1000);
 
 // Update pertama kali
 setTimeout(updateCurrentSong, 1000);
