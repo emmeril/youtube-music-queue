@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-950 text-white flex flex-col items-center justify-center min-h-screen">
+    <div x-data="{ 
+        song: { title: 'Idle', artist: '...' },
+        query: '',
+        async init() {
+            setInterval(async () => {
+                const res = await fetch('/status');
+                this.song = await res.json();
+            }, 2000);
+        },
+        async sendReq() {
+            await fetch('/request-song', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ query: this.query })
+            });
+            this.query = '';
+        }
+    }" class="p-10 bg-zinc-900 rounded-3xl border border-zinc-800 w-80 shadow-2xl">
+        
+        <div class="text-center mb-8">
+            <h1 class="text-2xl font-bold truncate" x-text="song.title"></h1>
+            <p class="text-zinc-500" x-text="song.artist"></p>
+        </div>
+
+        <input x-model="query" @keydown.enter="sendReq()" placeholder="Cari Lagu..." 
+               class="w-full bg-black border border-zinc-700 p-3 rounded-xl mb-4 text-sm focus:outline-none focus:border-red-500">
+        
+        <button @click="sendReq()" class="w-full bg-red-600 p-3 rounded-xl font-bold">Request</button>
+    </div>
+</body>
+</html>

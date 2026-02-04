@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "YT Music Local Bridge",
+  "version": "1.0",
+  "permissions": ["tabs"],
+  "host_permissions": [
+    "https://music.youtube.com/*",
+    "https://music.monse.co.id/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
