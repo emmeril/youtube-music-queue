@@ -4,359 +4,123 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const REQUEST_FILE = path.join(__dirname, 'requests.json');
+const PORT = 3000;
 
+// File untuk persistensi data
+const REQUESTS_FILE = path.join(__dirname, 'data', 'requests.json');
+const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
+
+// Pastikan direktori data ada
+if (!fs.existsSync(path.join(__dirname, 'data'))) {
+  fs.mkdirSync(path.join(__dirname, 'data'));
+}
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// State untuk lagu saat ini
-let currentSong = { 
-  title: "N/A", 
-  artist: "N/A", 
-  duration: 180000, // 3 menit default
-  lastUpdate: Date.now(),
-  confidence: 0
-};
-
-// State untuk antrian request
-let requestLockUntil = 0; // Waktu hingga request terkunci
-let activeRequest = null; // Request yang sedang diproses
-let requestQueue = []; // Antrian request
-
-// ================= FUNGSI UTILITAS =================
-const loadQueueFromFile = () => {
-  try {
-    if (fs.existsSync(REQUEST_FILE)) {
-      const data = fs.readFileSync(REQUEST_FILE, 'utf8');
-      requestQueue = JSON.parse(data);
-      console.log(`📂 Loaded ${requestQueue.length} requests from file`);
-      return requestQueue;
-    }
-  } catch (error) {
-    console.error('Error loading queue file:', error);
-  }
-  return [];
-};
-
-const saveQueueToFile = () => {
-  try {
-    fs.writeFileSync(REQUEST_FILE, JSON.stringify(requestQueue, null, 2));
-  } catch (error) {
-    console.error('Error saving queue file:', error);
+// ================= STATE MANAGEMENT =================
+let state = {
+  currentSong: {
+    title: 'Tidak ada lagu',
+    artist: 'Tidak diketahui',
+    duration: 180000,
+    timestamp: Date.now(),
+    confidence: 0,
+    isPlaying: false
+  },
+  activeRequest: null,
+  requestLockUntil: 0,
+  requestQueue: [],
+  history: [],
+  stats: {
+    totalRequests: 0,
+    totalSongsPlayed: 0,
+    totalPlayTime: 0
   }
 };
-
-// Inisialisasi queue saat server start
-loadQueueFromFile();
-
-// ================= ENDPOINT UNTUK EXTENSION =================
-
-// 1. Update lagu saat ini (dipanggil oleh content.js setiap 3 detik)
-app.post('/update', (req, res) => {
-  const { title, artist, duration = 180000 } = req.body;
-  const now = Date.now();
-  
-  // Validasi durasi
-  let validDuration = duration;
-  
-  // Validasi range durasi yang masuk akal
-  if (duration < 10000) { // Kurang dari 10 detik
-    console.log(`⚠️ Durasi terlalu pendek: ${duration}ms, menggunakan default`);
-    validDuration = 180000;
-  } else if (duration > 3600000) { // Lebih dari 1 jam
-    console.log(`⚠️ Durasi terlalu panjang: ${duration}ms, menggunakan maksimal`);
-    validDuration = 600000; // 10 menit maksimal
-  }
-  
-  // Hitung confidence berdasarkan durasi
-  let confidence = 50;
-  if (validDuration >= 120000 && validDuration <= 300000) { // 2-5 menit
-    confidence = 90;
-  } else if (validDuration >= 60000 && validDuration <= 600000) { // 1-10 menit
-    confidence = 70;
-  }
-  
-  // Update lagu saat ini
-  currentSong = { 
-    title: title || "N/A", 
-    artist: artist || "N/A", 
-    duration: validDuration,
-    lastUpdate: now,
-    confidence
-  };
-  
-  console.log(`📊 Song updated: ${title} - ${artist} (${Math.round(validDuration/1000)}s, ${confidence}%)`);
-  
-  res.json({ 
-    success: true, 
-    message: 'Song updated',
-    duration: validDuration
-  });
-});
-
-// 2. Get current song status
-app.get('/status', (req, res) => {
-  res.json({ 
-    title: currentSong.title, 
-    artist: currentSong.artist,
-    duration: currentSong.duration,
-    confidence: currentSong.confidence
-  });
-});
-
-// 3. Get next request (dipanggil oleh content.js setiap 10 detik)
-app.get('/get-request', (req, res) => {
-  const now = Date.now();
-  
-  // Cek jika masih terkunci
-  if (now < requestLockUntil) {
-    const remainingSeconds = Math.ceil((requestLockUntil - now) / 1000);
-    const minutes = Math.ceil(remainingSeconds / 60);
-    
-    return res.status(423).json({ 
-      error: 'Request terkunci', 
-      lockRemaining: remainingSeconds,
-      minutesRemaining: minutes,
-      currentPlaying: activeRequest?.query || currentSong.title,
-      queueLength: requestQueue.length
-    });
-  }
-  
-  // Jika queue kosong
-  if (requestQueue.length === 0) {
-    activeRequest = null;
-    return res.json(null);
-  }
-  
-  // Ambil request berikutnya dari queue
-  const nextRequest = requestQueue.shift();
-  activeRequest = nextRequest;
-  
-  // Set lock time berdasarkan durasi lagu saat ini
-  const lockDuration = currentSong.duration + 5000; // Durasi + buffer 5 detik
-  requestLockUntil = now + lockDuration;
-  
-  // Simpan perubahan ke file
-  saveQueueToFile();
-  
-  console.log(`🎵 Next request: "${nextRequest.query}" (Lock: ${Math.round(lockDuration/1000)}s)`);
-  console.log(`⏰ Lock until: ${new Date(requestLockUntil).toLocaleTimeString()}`);
-  
-  // Kembalikan request ke extension
-  res.json({
-    query: nextRequest.query,
-    time: nextRequest.time,
-    estimatedDuration: lockDuration,
-    queueRemaining: requestQueue.length
-  });
-});
-
-// ================= ENDPOINT UNTUK WEB INTERFACE =================
-
-// 4. Add new request
-app.post('/request-song', (req, res) => {
-  const { query } = req.body;
-  
-  if (!query || query.trim() === '') {
-    return res.status(400).json({ error: 'Query tidak boleh kosong' });
-  }
-  
-  // Cek duplikat
-  const isDuplicate = requestQueue.some(req => 
-    req.query.toLowerCase() === query.toLowerCase()
-  );
-  
-  if (isDuplicate) {
-    return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
-  }
-  
-  const newRequest = {
-    id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-    query: query.trim(),
-    time: Date.now(),
-    status: 'pending'
-  };
-  
-  requestQueue.push(newRequest);
-  saveQueueToFile();
-  
-  console.log(`📝 Request added: "${query}" (Total: ${requestQueue.length})`);
-  
-  // Jika tidak ada request aktif dan tidak ada lock, set ini sebagai aktif
-  if (!activeRequest && requestLockUntil === 0) {
-    activeRequest = newRequest;
-    console.log(`🎵 Set as active request: ${query}`);
-  }
-  
-  res.json({ 
-    success: true, 
-    message: 'Request berhasil ditambahkan',
-    request: newRequest,
-    queuePosition: requestQueue.length
-  });
-});
-
-// 5. Get all requests
-app.get('/requests', (req, res) => {
-  // Tambahkan informasi estimasi waktu tunggu
-  const requestsWithWaitTime = requestQueue.map((req, index) => {
-    // Estimasi waktu tunggu: durasi lagu saat ini × posisi
-    const estimatedWait = Math.round((currentSong.duration * (index + 1)) / 1000);
-    
-    return {
-      ...req,
-      position: index + 1,
-      estimatedWait: estimatedWait, // dalam detik
-      estimatedWaitFormatted: formatWaitTime(estimatedWait)
-    };
-  });
-  
-  res.json(requestsWithWaitTime);
-});
-
-// 6. Get queue information
-app.get('/queue-info', (req, res) => {
-  const now = Date.now();
-  const isLocked = now < requestLockUntil;
-  const remainingSeconds = isLocked ? Math.ceil((requestLockUntil - now) / 1000) : 0;
-  
-  // Hitung total waktu antrian (dalam menit)
-  let totalQueueTime = 0;
-  if (isLocked) {
-    totalQueueTime += remainingSeconds / 60; // waktu lock tersisa
-  }
-  
-  // Tambahkan durasi untuk setiap lagu dalam antrian
-  requestQueue.forEach(() => {
-    totalQueueTime += (currentSong.duration / 60000); // durasi dalam menit
-  });
-  
-  const queueInfo = {
-    isLocked,
-    lockUntil: requestLockUntil,
-    remainingSeconds,
-    remainingFormatted: formatWaitTime(remainingSeconds),
-    currentRequest: activeRequest,
-    currentSong: currentSong,
-    queue: requestQueue.map((req, index) => ({
-      ...req,
-      position: index + 1
-    })),
-    queueLength: requestQueue.length,
-    totalQueueTime: Math.round(totalQueueTime * 10) / 10 // 1 desimal
-  };
-  
-  res.json(queueInfo);
-});
-
-// 7. Clear all requests
-app.delete('/clear-requests', (req, res) => {
-  const previousCount = requestQueue.length;
-  requestQueue = [];
-  activeRequest = null;
-  requestLockUntil = 0;
-  saveQueueToFile();
-  
-  console.log(`🗑️ Cleared ${previousCount} requests`);
-  
-  res.json({ 
-    success: true, 
-    message: 'Semua request telah dihapus',
-    clearedCount: previousCount
-  });
-});
-
-// 8. Remove specific request
-app.delete('/remove-request/:id', (req, res) => {
-  const { id } = req.params;
-  const index = requestQueue.findIndex(req => req.id === id);
-  
-  if (index === -1) {
-    return res.status(404).json({ error: 'Request tidak ditemukan' });
-  }
-  
-  const removed = requestQueue.splice(index, 1)[0];
-  
-  // Jika yang dihapus adalah request aktif, reset lock
-  if (activeRequest && activeRequest.id === id) {
-    activeRequest = null;
-    requestLockUntil = 0;
-    console.log(`⚠️ Active request removed: "${removed.query}"`);
-  }
-  
-  saveQueueToFile();
-  
-  console.log(`🗑️ Request removed: "${removed.query}"`);
-  
-  res.json({ 
-    success: true, 
-    message: 'Request berhasil dihapus',
-    removed: removed.query,
-    newQueueLength: requestQueue.length
-  });
-});
-
-// 9. Skip current request (unlock)
-app.post('/skip-current', (req, res) => {
-  if (!activeRequest && requestLockUntil === 0) {
-    return res.status(400).json({ error: 'Tidak ada request yang sedang diputar' });
-  }
-  
-  console.log(`⏭️ Skipping current request: "${activeRequest?.query || 'Unknown'}"`);
-  
-  // Reset lock time
-  requestLockUntil = 0;
-  
-  // Jika ada request aktif, pindahkan ke akhir queue atau hapus
-  if (activeRequest) {
-    // Opsional: pindahkan ke akhir queue
-    // requestQueue.push(activeRequest);
-    activeRequest = null;
-  }
-  
-  res.json({
-    success: true,
-    message: 'Request berhasil diskip',
-    queueLength: requestQueue.length,
-    nextRequest: requestQueue.length > 0 ? requestQueue[0] : null
-  });
-});
-
-// 10. Get lock status (untuk monitoring)
-app.get('/lock-status', (req, res) => {
-  const now = Date.now();
-  const isLocked = now < requestLockUntil;
-  const remainingSeconds = isLocked ? Math.ceil((requestLockUntil - now) / 1000) : 0;
-  
-  res.json({
-    isLocked,
-    lockedUntil: requestLockUntil,
-    remainingSeconds,
-    remainingFormatted: formatWaitTime(remainingSeconds),
-    activeRequest: activeRequest?.query || null,
-    currentSong: currentSong.title,
-    currentDuration: Math.round(currentSong.duration / 1000) + 's'
-  });
-});
-
-// 11. Get server stats
-app.get('/stats', (req, res) => {
-  const now = Date.now();
-  const uptime = Math.round((now - currentSong.lastUpdate) / 1000);
-  
-  res.json({
-    serverTime: now,
-    uptimeSeconds: uptime,
-    currentSong: currentSong,
-    activeRequest: activeRequest,
-    queueLength: requestQueue.length,
-    isLocked: now < requestLockUntil,
-    lockRemaining: Math.max(0, requestLockUntil - now)
-  });
-});
 
 // ================= HELPER FUNCTIONS =================
+function loadData() {
+  try {
+    // Load requests
+    if (fs.existsSync(REQUESTS_FILE)) {
+      const requestsData = JSON.parse(fs.readFileSync(REQUESTS_FILE, 'utf8'));
+      state.requestQueue = requestsData.queue || [];
+      state.activeRequest = requestsData.activeRequest || null;
+      state.requestLockUntil = requestsData.lockUntil || 0;
+      console.log(`📂 Loaded ${state.requestQueue.length} requests from file`);
+    }
+    
+    // Load history
+    if (fs.existsSync(HISTORY_FILE)) {
+      const historyData = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+      state.history = historyData.history || [];
+      state.stats = historyData.stats || state.stats;
+      console.log(`📂 Loaded ${state.history.length} history items`);
+    }
+  } catch (error) {
+    console.error('Error loading data:', error);
+    // Reset to defaults
+    state.requestQueue = [];
+    state.history = [];
+  }
+}
+
+function saveRequests() {
+  try {
+    const data = {
+      queue: state.requestQueue,
+      activeRequest: state.activeRequest,
+      lockUntil: state.requestLockUntil,
+      lastUpdated: Date.now()
+    };
+    
+    fs.writeFileSync(REQUESTS_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error saving requests:', error);
+  }
+}
+
+function saveHistory() {
+  try {
+    const data = {
+      history: state.history.slice(-100), // Simpan 100 item terakhir
+      stats: state.stats,
+      lastUpdated: Date.now()
+    };
+    
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error saving history:', error);
+  }
+}
+
+function addToHistory(song, request = null) {
+  const historyItem = {
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+    song: { ...song },
+    request: request ? { ...request } : null,
+    timestamp: Date.now(),
+    duration: song.duration || 180000
+  };
+  
+  state.history.unshift(historyItem);
+  state.stats.totalSongsPlayed++;
+  state.stats.totalPlayTime += Math.round((song.duration || 180000) / 60000); // dalam menit
+  
+  // Simpan history
+  saveHistory();
+}
+
+function formatDuration(ms) {
+  if (!ms) return '0:00';
+  const seconds = Math.round(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
 
 function formatWaitTime(seconds) {
   if (!seconds || seconds <= 0) return 'Segera';
@@ -370,23 +134,543 @@ function formatWaitTime(seconds) {
   return `${hours} jam ${remainingMinutes} menit`;
 }
 
-// ================= SERVE HTML =================
+function calculateConfidence(song) {
+  let confidence = 50;
+  
+  // Durasi normal (2-5 menit)
+  if (song.duration >= 120000 && song.duration <= 300000) {
+    confidence += 30;
+  }
+  
+  // Title dan artist valid
+  if (song.title && song.title !== 'Tidak diketahui') confidence += 10;
+  if (song.artist && song.artist !== 'Tidak diketahui') confidence += 10;
+  
+  return Math.min(confidence, 95);
+}
 
+// ================= API ENDPOINTS =================
+
+// 1. UPDATE SONG (dipanggil oleh extension)
+app.post('/update', (req, res) => {
+  try {
+    const { title, artist, duration, timestamp, isNewSong, url } = req.body;
+    const now = Date.now();
+    
+    // Validasi input
+    const validDuration = Math.max(10000, Math.min(duration || 180000, 3600000));
+    
+    // Hitung confidence
+    const confidence = calculateConfidence({ title, artist, duration: validDuration });
+    
+    // Update state
+    state.currentSong = {
+      title: title || 'Tidak diketahui',
+      artist: artist || 'Tidak diketahui',
+      duration: validDuration,
+      timestamp: now,
+      confidence,
+      isPlaying: true,
+      url: url || null
+    };
+    
+    console.log(`📊 Song updated: ${title} - ${artist} (${formatDuration(validDuration)}, ${confidence}%)`);
+    
+    // Jika ini lagu baru dan ada request aktif, tambahkan ke history
+    if (isNewSong && state.activeRequest) {
+      addToHistory(state.currentSong, state.activeRequest);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Song updated',
+      song: state.currentSong,
+      timestamp: now
+    });
+    
+  } catch (error) {
+    console.error('Error in /update:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 2. GET CURRENT STATUS
+app.get('/status', (req, res) => {
+  res.json({
+    song: state.currentSong,
+    isLocked: Date.now() < state.requestLockUntil,
+    lockRemaining: Math.max(0, state.requestLockUntil - Date.now()),
+    activeRequest: state.activeRequest,
+    queueLength: state.requestQueue.length,
+    stats: state.stats
+  });
+});
+
+// 3. GET NEXT REQUEST (dipanggil oleh extension)
+app.get('/get-request', (req, res) => {
+  const now = Date.now();
+  
+  // Cek lock
+  if (now < state.requestLockUntil) {
+    const remaining = Math.ceil((state.requestLockUntil - now) / 1000);
+    return res.status(423).json({
+      error: 'Request terkunci',
+      lockRemaining: remaining,
+      remainingFormatted: formatWaitTime(remaining),
+      currentPlaying: state.activeRequest?.query || state.currentSong.title,
+      estimatedFinish: new Date(state.requestLockUntil).toLocaleTimeString()
+    });
+  }
+  
+  // Cek jika queue kosong
+  if (state.requestQueue.length === 0) {
+    // Reset active request jika sudah tidak ada lock
+    if (state.activeRequest) {
+      state.activeRequest.status = 'completed';
+      state.activeRequest.completedAt = now;
+      state.activeRequest = null;
+      saveRequests();
+    }
+    
+    return res.status(204).send(); // No content
+  }
+  
+  // Ambil request berikutnya
+  const nextRequest = state.requestQueue.shift();
+  state.activeRequest = {
+    ...nextRequest,
+    status: 'playing',
+    startedAt: now,
+    estimatedDuration: state.currentSong.duration || 180000
+  };
+  
+  // Set lock time berdasarkan durasi lagu saat ini + buffer
+  const lockDuration = (state.currentSong.duration || 180000) + 10000;
+  state.requestLockUntil = now + lockDuration;
+  
+  // Update stats
+  state.stats.totalRequests++;
+  
+  // Simpan perubahan
+  saveRequests();
+  
+  console.log(`🎵 Next request: "${nextRequest.query}" (Lock: ${Math.round(lockDuration/1000)}s)`);
+  
+  res.json({
+    query: nextRequest.query,
+    id: nextRequest.id,
+    time: nextRequest.time,
+    estimatedDuration: lockDuration,
+    queueRemaining: state.requestQueue.length,
+    lockUntil: state.requestLockUntil
+  });
+});
+
+// 4. ADD NEW REQUEST
+app.post('/request-song', (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: 'Query tidak boleh kosong' });
+    }
+    
+    // Cek duplikat di queue
+    const isDuplicate = state.requestQueue.some(req => 
+      req.query.toLowerCase() === query.toLowerCase()
+    );
+    
+    if (isDuplicate) {
+      return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
+    }
+    
+    // Buat request baru
+    const newRequest = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+      query: query.trim(),
+      time: Date.now(),
+      status: 'pending',
+      addedBy: req.ip || 'unknown'
+    };
+    
+    // Tambahkan ke queue
+    state.requestQueue.push(newRequest);
+    saveRequests();
+    
+    console.log(`📝 Request added: "${query}" (Total: ${state.requestQueue.length})`);
+    
+    // Jika tidak ada request aktif, set ini sebagai berikutnya
+    if (!state.activeRequest && state.requestLockUntil === 0) {
+      console.log(`🎯 No active request, "${query}" will be played next`);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Request berhasil ditambahkan',
+      request: newRequest,
+      queuePosition: state.requestQueue.length,
+      estimatedWait: calculateWaitTime(state.requestQueue.length)
+    });
+    
+  } catch (error) {
+    console.error('Error in /request-song:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 5. GET ALL REQUESTS
+app.get('/requests', (req, res) => {
+  const requestsWithWait = state.requestQueue.map((req, index) => ({
+    ...req,
+    position: index + 1,
+    estimatedWait: calculateWaitTime(index + 1),
+    estimatedWaitFormatted: formatWaitTime(calculateWaitTime(index + 1) * 60)
+  }));
+  
+  res.json({
+    activeRequest: state.activeRequest,
+    queue: requestsWithWait,
+    total: state.requestQueue.length,
+    isLocked: Date.now() < state.requestLockUntil,
+    lockRemaining: Math.max(0, state.requestLockUntil - Date.now())
+  });
+});
+
+// 6. SONG ENDED (dipanggil ketika lagu selesai)
+app.post('/song-ended', (req, res) => {
+  const now = Date.now();
+  
+  console.log(`⏭️ Song ended notification received`);
+  
+  // Reset lock lebih awal
+  if (now < state.requestLockUntil) {
+    const remaining = Math.ceil((state.requestLockUntil - now) / 1000);
+    console.log(`🔓 Early unlock: ${remaining}s remaining`);
+  }
+  
+  state.requestLockUntil = 0;
+  state.currentSong.isPlaying = false;
+  
+  // Update active request status
+  if (state.activeRequest) {
+    state.activeRequest.status = 'completed';
+    state.activeRequest.completedAt = now;
+    state.activeRequest.actualDuration = now - state.activeRequest.startedAt;
+    state.activeRequest = null;
+  }
+  
+  saveRequests();
+  
+  res.json({
+    success: true,
+    message: 'Lock released for next request',
+    timestamp: now,
+    nextRequestAvailable: state.requestQueue.length > 0
+  });
+});
+
+// 7. VERIFY SONG MATCH
+app.post('/verify-match', (req, res) => {
+  const { title, artist } = req.body;
+  
+  if (!state.activeRequest) {
+    return res.json({ isMatch: false, reason: 'No active request' });
+  }
+  
+  const requestQuery = state.activeRequest.query.toLowerCase();
+  const songTitle = (title || '').toLowerCase();
+  const songArtist = (artist || '').toLowerCase();
+  
+  // Cek kecocokan sederhana
+  const isMatch = songTitle.includes(requestQuery) || 
+                 requestQuery.includes(songTitle) ||
+                 songArtist.includes(requestQuery) ||
+                 requestQuery.includes(songArtist);
+  
+  const matchData = {
+    isMatch,
+    requestId: state.activeRequest.id,
+    requestQuery: state.activeRequest.query,
+    songTitle: title,
+    songArtist: artist,
+    confidence: calculateMatchConfidence(requestQuery, songTitle, songArtist)
+  };
+  
+  if (isMatch) {
+    console.log(`✅ Song match confirmed: "${title}" matches request "${requestQuery}"`);
+  }
+  
+  res.json(matchData);
+});
+
+// 8. SKIP CURRENT REQUEST
+app.post('/skip-current', (req, res) => {
+  console.log('⏭️ Skip current request requested');
+  
+  // Reset lock
+  state.requestLockUntil = 0;
+  
+  // Update active request status
+  if (state.activeRequest) {
+    state.activeRequest.status = 'skipped';
+    state.activeRequest.skippedAt = Date.now();
+    
+    // Optional: pindahkan ke akhir queue
+    // state.requestQueue.push(state.activeRequest);
+    
+    state.activeRequest = null;
+  }
+  
+  saveRequests();
+  
+  res.json({
+    success: true,
+    message: 'Request skipped successfully',
+    nextRequest: state.requestQueue.length > 0 ? state.requestQueue[0] : null,
+    queueLength: state.requestQueue.length
+  });
+});
+
+// 9. FORCE NEXT (emergency skip)
+app.post('/force-next', (req, res) => {
+  console.log('⚡ Force next requested');
+  
+  // Reset semua state terkait playback
+  state.requestLockUntil = 0;
+  state.currentSong.isPlaying = false;
+  
+  if (state.activeRequest) {
+    state.activeRequest.status = 'force_skipped';
+    state.activeRequest.forceSkippedAt = Date.now();
+    state.activeRequest = null;
+  }
+  
+  saveRequests();
+  
+  res.json({
+    success: true,
+    message: 'Force skip completed',
+    timestamp: Date.now()
+  });
+});
+
+// 10. REMOVE SPECIFIC REQUEST
+app.delete('/remove-request/:id', (req, res) => {
+  const { id } = req.params;
+  const index = state.requestQueue.findIndex(req => req.id === id);
+  
+  if (index === -1) {
+    return res.status(404).json({ error: 'Request tidak ditemukan' });
+  }
+  
+  const removed = state.requestQueue.splice(index, 1)[0];
+  
+  // Jika yang dihapus adalah active request, reset lock
+  if (state.activeRequest && state.activeRequest.id === id) {
+    state.requestLockUntil = 0;
+    state.activeRequest = null;
+    console.log(`⚠️ Active request removed: "${removed.query}"`);
+  }
+  
+  saveRequests();
+  
+  console.log(`🗑️ Request removed: "${removed.query}"`);
+  
+  res.json({
+    success: true,
+    message: 'Request berhasil dihapus',
+    removed: removed.query,
+    newQueueLength: state.requestQueue.length
+  });
+});
+
+// 11. CLEAR ALL REQUESTS
+app.delete('/clear-requests', (req, res) => {
+  const previousCount = state.requestQueue.length;
+  
+  state.requestQueue = [];
+  state.activeRequest = null;
+  state.requestLockUntil = 0;
+  
+  saveRequests();
+  
+  console.log(`🗑️ Cleared ${previousCount} requests`);
+  
+  res.json({
+    success: true,
+    message: 'Semua request telah dihapus',
+    clearedCount: previousCount
+  });
+});
+
+// 12. GET QUEUE INFO
+app.get('/queue-info', (req, res) => {
+  const now = Date.now();
+  const isLocked = now < state.requestLockUntil;
+  const remainingSeconds = isLocked ? Math.ceil((state.requestLockUntil - now) / 1000) : 0;
+  
+  // Hitung total waktu antrian
+  let totalQueueMinutes = 0;
+  if (isLocked) {
+    totalQueueMinutes += remainingSeconds / 60;
+  }
+  
+  // Tambahkan durasi setiap lagu dalam antrian
+  state.requestQueue.forEach(() => {
+    totalQueueMinutes += (state.currentSong.duration / 60000);
+  });
+  
+  const queueInfo = {
+    isLocked,
+    lockUntil: state.requestLockUntil,
+    remainingSeconds,
+    remainingFormatted: formatWaitTime(remainingSeconds),
+    currentRequest: state.activeRequest,
+    currentSong: state.currentSong,
+    queue: state.requestQueue.map((req, index) => ({
+      ...req,
+      position: index + 1
+    })),
+    queueLength: state.requestQueue.length,
+    totalQueueTime: Math.round(totalQueueMinutes * 10) / 10
+  };
+  
+  res.json(queueInfo);
+});
+
+// 13. GET HISTORY
+app.get('/history', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  
+  const paginatedHistory = state.history.slice(offset, offset + limit);
+  
+  res.json({
+    history: paginatedHistory,
+    total: state.history.length,
+    offset,
+    limit,
+    stats: state.stats
+  });
+});
+
+// 14. GET STATS
+app.get('/stats', (req, res) => {
+  const now = Date.now();
+  const uptime = Math.round((now - (state.history[0]?.timestamp || now)) / 1000);
+  
+  res.json({
+    serverTime: now,
+    uptimeSeconds: uptime,
+    currentSong: state.currentSong,
+    activeRequest: state.activeRequest,
+    queueLength: state.requestQueue.length,
+    historyCount: state.history.length,
+    stats: state.stats,
+    isLocked: now < state.requestLockUntil,
+    lockRemaining: Math.max(0, state.requestLockUntil - now)
+  });
+});
+
+// 15. HEALTH CHECK
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: Date.now(),
+    version: '2.0.0',
+    uptime: process.uptime()
+  });
+});
+
+// ================= HELPER FUNCTIONS =================
+function calculateWaitTime(position) {
+  // Estimasi waktu tunggu dalam menit
+  const avgSongDuration = 3; // 3 menit rata-rata
+  return position * avgSongDuration;
+}
+
+function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
+  let confidence = 0;
+  
+  // Exact match di title
+  if (songTitle === requestQuery) confidence = 100;
+  // Contains match di title
+  else if (songTitle.includes(requestQuery) || requestQuery.includes(songTitle)) confidence = 85;
+  // Contains match di artist
+  else if (songArtist.includes(requestQuery) || requestQuery.includes(songArtist)) confidence = 75;
+  // Partial match
+  else {
+    const requestWords = requestQuery.split(' ');
+    const titleWords = songTitle.split(' ');
+    const artistWords = songArtist.split(' ');
+    
+    const matchingWords = requestWords.filter(word => 
+      titleWords.some(tw => tw.includes(word)) || 
+      artistWords.some(aw => aw.includes(word))
+    );
+    
+    confidence = Math.round((matchingWords.length / requestWords.length) * 100);
+  }
+  
+  return confidence;
+}
+
+// ================= AUTO-UNLOCK TIMER =================
+setInterval(() => {
+  const now = Date.now();
+  
+  // Auto-unlock jika lock sudah expired tetapi masih aktif
+  if (now > state.requestLockUntil && state.requestLockUntil > 0) {
+    console.log(`🔄 Auto-unlock: Lock expired`);
+    state.requestLockUntil = 0;
+    
+    if (state.activeRequest) {
+      state.activeRequest.status = 'auto_completed';
+      state.activeRequest.autoCompletedAt = now;
+      state.activeRequest = null;
+      saveRequests();
+    }
+  }
+  
+  // Auto-reset current song jika tidak ada update dalam 2 menit
+  if (state.currentSong.isPlaying && now - state.currentSong.timestamp > 120000) {
+    console.log('🔄 Auto-reset: No song update for 2 minutes');
+    state.currentSong.isPlaying = false;
+  }
+}, 10000); // Cek setiap 10 detik
+
+// ================= SERVE WEB INTERFACE =================
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ================= START SERVER =================
+// Load data sebelum start
+loadData();
 
-const PORT = 3000;
 app.listen(PORT, () => {
-  console.log("✅ Server running → http://localhost:" + PORT);
-  console.log(`📊 Current queue: ${requestQueue.length} requests`);
-  console.log("🎵 Ready to process YouTube Music requests!");
+  console.log("=".repeat(50));
+  console.log("✅ YouTube Music Bridge Server");
+  console.log(`📍 Running at: http://localhost:${PORT}`);
+  console.log(`📊 Current queue: ${state.requestQueue.length} requests`);
+  console.log(`🎵 Current song: ${state.currentSong.title}`);
+  console.log("=".repeat(50));
   
-  // Log initial state
-  if (requestLockUntil > 0) {
-    const remaining = Math.ceil((requestLockUntil - Date.now()) / 1000);
-    console.log(`⏰ Current lock: ${remaining}s remaining`);
+  // Log lock status jika ada
+  if (state.requestLockUntil > 0) {
+    const remaining = Math.ceil((state.requestLockUntil - Date.now()) / 1000);
+    console.log(`⏰ Current lock: ${formatWaitTime(remaining)} remaining`);
   }
+});
+
+// Handle shutdown gracefully
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down server...');
+  
+  // Save data before exit
+  saveRequests();
+  saveHistory();
+  
+  console.log('✅ Data saved. Goodbye!');
+  process.exit(0);
 });

@@ -1,360 +1,850 @@
-// ================= FUNGSI UTAMA UNTUK MENDAPATKAN DURASI =================
-function getAccurateSongDuration() {
-  try {
-    // Method 1: Dari video element
-    const videoElement = document.querySelector('video');
-    if (videoElement && !isNaN(videoElement.duration) && videoElement.duration > 0) {
-      console.log(`🎥 Video duration: ${videoElement.duration}s`);
-      return videoElement.duration * 1000;
+// ================= KONFIGURASI =================
+const CONFIG = {
+  SERVER_URL: 'http://localhost:3000',
+  UPDATE_INTERVAL: 2000, // 2 detik
+  REQUEST_CHECK_INTERVAL: 3000, // 3 detik
+  SEARCH_TIMEOUT: 15000, // 15 detik
+  DEBUG: true
+};
+
+// ================= STATE MANAGEMENT =================
+let state = {
+  currentSong: {
+    title: '',
+    artist: '',
+    duration: 0,
+    timestamp: 0
+  },
+  lastProcessedRequest: null,
+  isProcessingRequest: false,
+  debugMode: CONFIG.DEBUG,
+  retryCount: 0,
+  maxRetries: 3
+};
+
+// ================= VIDEO MONITORING =================
+class VideoMonitor {
+  constructor() {
+    this.video = null;
+    this.lastTime = 0;
+    this.lastUpdate = 0;
+    this.isEnded = false;
+    this.init();
+  }
+
+  init() {
+    this.findVideoElement();
+    if (!this.video) {
+      setTimeout(() => this.init(), 1000);
+      return;
     }
-    
-    // Method 2: Dari progress bar YouTube Music
-    const progressBar = document.querySelector('tp-yt-paper-progress#sliderBar');
-    if (progressBar) {
-      const maxDuration = progressBar.getAttribute('aria-valuemax');
-      if (maxDuration && !isNaN(maxDuration) && parseFloat(maxDuration) > 0) {
-        console.log(`📊 Progress bar duration: ${maxDuration}s`);
-        return parseFloat(maxDuration) * 1000;
+    this.setupEventListeners();
+    this.log('Video monitoring initialized');
+  }
+
+  findVideoElement() {
+    this.video = document.querySelector('video');
+    if (!this.video) {
+      // Coba alternatif selector
+      const videoSelectors = [
+        'video',
+        'ytd-player video',
+        '#movie_player video',
+        '.html5-main-video'
+      ];
+      
+      for (const selector of videoSelectors) {
+        this.video = document.querySelector(selector);
+        if (this.video) break;
       }
     }
-    
-    // Method 3: Dari time display (format: "1:23 / 3:45")
-    const timeDisplays = document.querySelectorAll('.time-info, .ytp-time-duration');
-    for (const display of timeDisplays) {
-      const text = display.textContent || '';
-      if (text.includes('/')) {
-        const parts = text.split('/');
-        if (parts.length === 2) {
-          const totalTime = parts[1].trim();
-          const seconds = convertTimeToSeconds(totalTime);
-          if (seconds > 0) {
-            console.log(`⏰ Time display: ${totalTime} = ${seconds}s`);
-            return seconds * 1000;
+  }
+
+  setupEventListeners() {
+    if (!this.video) return;
+
+    // Event untuk deteksi lagu selesai
+    this.video.addEventListener('ended', () => {
+      this.isEnded = true;
+      this.log('🎬 Video ended - triggering next song');
+      this.handleSongEnd();
+    });
+
+    // Event untuk deteksi lagu mulai
+    this.video.addEventListener('playing', () => {
+      if (this.isEnded) {
+        this.isEnded = false;
+        this.log('▶️ New song started playing');
+        setTimeout(() => SongManager.update(), 1000);
+      }
+    });
+
+    // Event untuk deteksi waktu video
+    this.video.addEventListener('timeupdate', () => {
+      const now = Date.now();
+      if (now - this.lastUpdate > 1000) {
+        this.lastUpdate = now;
+        
+        // Deteksi jika video kembali ke awal (lagu baru)
+        if (this.video.currentTime < 2 && this.lastTime > 30) {
+          this.log('🔄 Video reset detected - new song');
+          setTimeout(() => SongManager.update(), 1500);
+        }
+        this.lastTime = this.video.currentTime;
+      }
+    });
+
+    // Tambahkan observer untuk perubahan DOM
+    this.setupMutationObserver();
+  }
+
+  setupMutationObserver() {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'subtree') {
+          // Cek jika video element berubah
+          if (!document.contains(this.video)) {
+            this.log('Video element removed, reinitializing...');
+            setTimeout(() => this.init(), 500);
           }
+        }
+      });
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  handleSongEnd() {
+    // Kirim notifikasi ke server bahwa lagu selesai
+    ServerAPI.notifySongEnded()
+      .then(() => {
+        this.log('✅ Server notified of song end');
+        // Langsung cek request berikutnya
+        setTimeout(() => RequestProcessor.checkRequests(), 1000);
+      })
+      .catch(err => this.error('Failed to notify server:', err));
+  }
+
+  log(...args) {
+    if (CONFIG.DEBUG) console.log('[VideoMonitor]', ...args);
+  }
+
+  error(...args) {
+    console.error('[VideoMonitor]', ...args);
+  }
+}
+
+// ================= SONG MANAGER =================
+class SongManager {
+  static lastTitle = '';
+  static lastArtist = '';
+  static lastDuration = 0;
+  static updateCount = 0;
+
+  static update() {
+    try {
+      const songInfo = this.extractSongInfo();
+      const duration = this.getDuration();
+      
+      // Deteksi perubahan lagu
+      const isNewSong = this.isNewSong(songInfo, duration);
+      
+      if (isNewSong || this.shouldForceUpdate()) {
+        this.sendToServer(songInfo, duration, isNewSong);
+      }
+    } catch (error) {
+      console.error('❌ SongManager error:', error);
+    }
+  }
+
+  static extractSongInfo() {
+    // Cari elemen title dengan berbagai selector
+    const titleSelectors = [
+      'ytmusic-player-bar .title',
+      '.title.ytmusic-player-bar',
+      'yt-formatted-string.title',
+      '[data-title]',
+      'h1.title',
+      '.song-title',
+      'ytmusic-player-bar .yt-formatted-string[has-link-only_]'
+    ];
+
+    // Cari elemen artist dengan berbagai selector
+    const artistSelectors = [
+      'ytmusic-player-bar .byline',
+      '.byline.ytmusic-player-bar',
+      'yt-formatted-string.byline',
+      '.artist-name',
+      '.ytmusic-player-bar .yt-formatted-string.complex-string'
+    ];
+
+    let title = 'Tidak diketahui';
+    let artist = 'Tidak diketahui';
+
+    // Extract title
+    for (const selector of titleSelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.textContent && element.textContent.trim()) {
+        title = element.textContent.trim();
+        break;
+      }
+    }
+
+    // Extract artist
+    for (const selector of artistSelectors) {
+      const element = document.querySelector(selector);
+      if (element && element.textContent && element.textContent.trim()) {
+        let artistText = element.textContent.trim();
+        
+        // Bersihkan text artist
+        artistText = this.cleanArtistText(artistText);
+        
+        if (artistText) {
+          artist = artistText;
+          break;
         }
       }
     }
-    
-  } catch (error) {
-    console.error('Error in getAccurateSongDuration:', error);
+
+    return { title, artist };
   }
-  
-  // Default fallback
-  console.log('⚠️ Using default duration: 180s');
-  return 180000; // 3 minutes
-}
 
-function convertTimeToSeconds(timeStr) {
-  if (!timeStr) return 0;
-  
-  const parts = timeStr.trim().split(':').map(part => parseInt(part) || 0);
-  
-  if (parts.length === 3) {
-    // HH:MM:SS
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  } else if (parts.length === 2) {
-    // MM:SS
-    return parts[0] * 60 + parts[1];
-  }
-  
-  return 0;
-}
-
-// ================= FUNGSI UNTUK MENDAPATKAN INFO LAGU =================
-function getCurrentSongInfo() {
-  // Cari title
-  const titleElement = document.querySelector('ytmusic-player-bar .title') ||
-                      document.querySelector('.title.ytmusic-player-bar');
-  
-  // Cari artist
-  const artistElement = document.querySelector('ytmusic-player-bar .byline') ||
-                       document.querySelector('.byline.ytmusic-player-bar');
-  
-  let title = titleElement?.textContent?.trim() || 'Tidak diketahui';
-  let artist = artistElement?.textContent?.trim() || 'Tidak diketahui';
-  
-  // Bersihkan artist name
-  if (artist.includes('•')) artist = artist.split('•')[0].trim();
-  if (artist.includes('-')) artist = artist.split('-')[0].trim();
-  
-  return { title, artist };
-}
-
-// ================= AUTO-PLAY UNTUK HALAMAN PENCARIAN =================
-function setupSearchAutoPlay() {
-  console.log('🔍 Setting up auto-play for search page...');
-  
-  let attempts = 0;
-  const maxAttempts = 30; // Maksimal 30 detik
-  
-  const searchInterval = setInterval(() => {
-    attempts++;
-    console.log(`🔄 Attempt ${attempts} to find search results...`);
+  static cleanArtistText(text) {
+    if (!text) return text;
     
-    // Coba dengan selector yang berbeda-beda
+    // Hapus separator dan text setelahnya
+    const separators = ['•', '·', '|', '-', '–', '—'];
+    
+    for (const separator of separators) {
+      if (text.includes(separator)) {
+        text = text.split(separator)[0].trim();
+      }
+    }
+    
+    // Hapus kata-kata umum yang tidak perlu
+    const commonWords = ['Topic', 'VEVO', 'Official', 'Video', 'Audio'];
+    commonWords.forEach(word => {
+      const regex = new RegExp(`\\s*${word}\\s*`, 'gi');
+      text = text.replace(regex, ' ');
+    });
+    
+    return text.trim();
+  }
+
+  static getDuration() {
+    // Method 1: Dari video element
+    const video = document.querySelector('video');
+    if (video && video.duration && video.duration > 0) {
+      return Math.round(video.duration * 1000);
+    }
+
+    // Method 2: Dari progress bar
+    const progressBar = document.querySelector('tp-yt-paper-progress, .ytp-progress-bar');
+    if (progressBar) {
+      const max = progressBar.getAttribute('aria-valuemax') || 
+                  progressBar.getAttribute('max') ||
+                  progressBar.style.getPropertyValue('--max-value');
+      if (max && parseFloat(max) > 0) {
+        return parseFloat(max) * 1000;
+      }
+    }
+
+    // Method 3: Dari text duration
+    const durationElements = document.querySelectorAll(
+      '.ytp-time-duration, .time-info, [aria-label*="duration"], [class*="duration"]'
+    );
+    
+    for (const element of durationElements) {
+      const text = element.textContent || '';
+      if (text.includes(':')) {
+        const seconds = this.parseTimeText(text);
+        if (seconds > 0) return seconds * 1000;
+      }
+    }
+
+    // Default: 3 menit
+    return 180000;
+  }
+
+  static parseTimeText(text) {
+    // Format: "3:45" atau "1:23 / 3:45"
+    const timeMatch = text.match(/(\d+):(\d+)/g);
+    if (!timeMatch) return 0;
+    
+    // Ambil bagian terakhir (total duration)
+    const lastTime = timeMatch[timeMatch.length - 1];
+    const parts = lastTime.split(':').map(Number);
+    
+    if (parts.length === 2) {
+      return parts[0] * 60 + parts[1];
+    } else if (parts.length === 3) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+    
+    return 0;
+  }
+
+  static isNewSong(songInfo, duration) {
+    const titleChanged = songInfo.title !== this.lastTitle;
+    const artistChanged = songInfo.artist !== this.lastArtist;
+    const durationChanged = Math.abs(duration - this.lastDuration) > 10000; // 10 detik
+    
+    return titleChanged || (artistChanged && songInfo.artist !== 'Tidak diketahui') || durationChanged;
+  }
+
+  static shouldForceUpdate() {
+    this.updateCount++;
+    
+    // Force update setiap 10 kali update atau 30 detik
+    if (this.updateCount >= 10) {
+      this.updateCount = 0;
+      return true;
+    }
+    
+    return Date.now() - state.currentSong.timestamp > 30000;
+  }
+
+  static async sendToServer(songInfo, duration, isNewSong) {
+    try {
+      const songData = {
+        ...songInfo,
+        duration,
+        timestamp: Date.now(),
+        isNewSong,
+        url: window.location.href
+      };
+
+      const response = await fetch(`${CONFIG.SERVER_URL}/update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(songData)
+      });
+
+      if (response.ok) {
+        // Update state
+        this.lastTitle = songInfo.title;
+        this.lastArtist = songInfo.artist;
+        this.lastDuration = duration;
+        state.currentSong = songData;
+        
+        if (isNewSong) {
+          this.log(`🎵 New song detected: ${songInfo.title} - ${songInfo.artist}`);
+          
+          // Verifikasi kecocokan dengan request
+          setTimeout(() => this.verifyRequestMatch(songInfo), 2000);
+        }
+        
+        // Update debug panel
+        DebugPanel.update(songInfo, duration);
+      }
+    } catch (error) {
+      console.error('❌ Failed to send song data:', error);
+    }
+  }
+
+  static async verifyRequestMatch(songInfo) {
+    try {
+      const response = await fetch(`${CONFIG.SERVER_URL}/verify-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(songInfo)
+      });
+      
+      const result = await response.json();
+      
+      if (result.isMatch && result.requestId) {
+        this.log(`✅ Song matches request: ${result.requestQuery}`);
+      }
+    } catch (error) {
+      console.error('Error verifying match:', error);
+    }
+  }
+
+  static log(...args) {
+    if (CONFIG.DEBUG) console.log('[SongManager]', ...args);
+  }
+}
+
+// ================= SEARCH AUTOPLAY =================
+class SearchAutoplay {
+  constructor() {
+    this.attempts = 0;
+    this.maxAttempts = 20;
+    this.timeout = CONFIG.SEARCH_TIMEOUT;
+    this.interval = null;
+  }
+
+  start() {
+    this.log('Starting search autoplay...');
+    
+    this.interval = setInterval(() => {
+      this.attempts++;
+      this.findAndPlay();
+    }, 1000);
+    
+    // Timeout setelah waktu maksimum
+    setTimeout(() => {
+      if (this.interval) {
+        this.stop();
+        this.log('Search autoplay timeout');
+      }
+    }, this.timeout);
+  }
+
+  stop() {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+
+  findAndPlay() {
+    // Cek jika sudah ada video yang diputar
+    const video = document.querySelector('video');
+    if (video && (video.currentTime > 0 || !video.paused)) {
+      this.log('Video already playing, stopping search');
+      this.stop();
+      this.goBackAfterDelay();
+      return;
+    }
+
+    // Urutan selector berdasarkan prioritas
     const selectors = [
-      // Selector utama
-      'ytmusic-responsive-list-item-renderer a',
+      // Tombol play di hasil pencarian
+      'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer button',
+      'ytmusic-responsive-list-item-renderer [aria-label*="Play"]',
       
-      // Selector alternatif
-      'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer',
-      'ytmusic-responsive-list-item-renderer [play-button]',
-      'ytmusic-responsive-list-item-renderer .play-button',
+      // Link ke video
+      'ytmusic-responsive-list-item-renderer a.yt-simple-endpoint',
+      'ytmusic-responsive-list-item-renderer #play-button',
       
-      // Selector fallback
-      'a[href*="/watch"]',
-      '.ytmusic-shelf-renderer a',
-      '.content-container a'
+      // Fallback: tombol apa saja dengan label play
+      'button[aria-label*="play" i]',
+      '[title*="play" i]',
+      '.play-button',
+      '[play-button]'
     ];
-    
-    // Coba setiap selector
+
     for (const selector of selectors) {
       try {
-        const element = document.querySelector(selector);
-        if (element) {
-          console.log(`✅ Found element with selector: ${selector}`);
+        const elements = document.querySelectorAll(selector);
+        if (elements.length > 0) {
+          const element = elements[0];
           
-          // Klik elemen
-          element.click();
-          console.log('🎵 Clicked on song!');
+          this.log(`Found ${elements.length} elements with selector: ${selector}`);
           
-          // Tunggu sebentar lalu kembali ke halaman sebelumnya
+          // Scroll ke element
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Tunggu sebentar lalu klik
           setTimeout(() => {
-            // Hanya kembali jika kita masih di halaman pencarian
-            if (window.location.href.includes('/search?q=')) {
-              console.log('↩️ Going back to previous page...');
-              if (window.history.length > 1) {
-                window.history.back();
-              }
-            }
-          }, 2000);
+            element.click();
+            this.log('Clicked play element');
+            
+            // Verifikasi bahwa lagu mulai diputar
+            this.verifyPlayback();
+          }, 500);
           
-          clearInterval(searchInterval);
+          this.stop();
           return;
         }
       } catch (error) {
-        console.error(`Error with selector ${selector}:`, error);
+        this.error(`Error with selector ${selector}:`, error);
+      }
+    }
+
+    // Jika mencapai max attempts, coba metode alternatif
+    if (this.attempts >= this.maxAttempts) {
+      this.tryAlternativeMethods();
+    }
+  }
+
+  async verifyPlayback() {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const video = document.querySelector('video');
+    if (video && (video.currentTime > 0 || !video.paused)) {
+      this.log('✅ Playback verified successfully');
+      this.goBackAfterDelay();
+    } else {
+      this.log('❌ Playback not detected, retrying...');
+      // Coba lagi
+      this.attempts = 0;
+      this.start();
+    }
+  }
+
+  tryAlternativeMethods() {
+    this.log('Trying alternative search methods...');
+    
+    // Method 1: Klik link pertama yang mengarah ke watch
+    const links = document.querySelectorAll('a[href*="/watch"]');
+    for (const link of links) {
+      if (!link.href.includes('list=')) { // Hindari playlist
+        link.click();
+        this.log('Clicked watch link:', link.href);
+        this.goBackAfterDelay();
+        return;
       }
     }
     
-    // Jika tidak ada yang ditemukan, coba cari dengan cara lain
-    if (attempts === 5 || attempts === 15) {
-      console.log('🔍 Trying alternative search methods...');
-      
-      // Method 1: Cari semua link yang mungkin
-      const allLinks = document.querySelectorAll('a');
-      for (const link of allLinks) {
-        const href = link.getAttribute('href') || '';
-        if (href.includes('/watch') && !href.includes('list=')) {
-          console.log('✅ Found watch link:', href);
-          link.click();
-          
-          setTimeout(() => {
-            if (window.history.length > 1) {
-              window.history.back();
-            }
-          }, 2000);
-          
-          clearInterval(searchInterval);
-          return;
-        }
-      }
-      
-      // Method 2: Cari tombol play
-      const playButtons = document.querySelectorAll('button, [role="button"]');
-      for (const button of playButtons) {
-        const label = button.getAttribute('aria-label') || button.textContent || '';
-        if (label.toLowerCase().includes('play') || label.includes('▶')) {
-          console.log('✅ Found play button:', label);
-          button.click();
-          
-          setTimeout(() => {
-            if (window.history.length > 1) {
-              window.history.back();
-            }
-          }, 2000);
-          
-          clearInterval(searchInterval);
-          return;
-        }
-      }
-    }
+    // Method 2: Gunakan keyboard shortcut (Space untuk play)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+    this.log('Sent space key for playback');
     
-    // Berhenti setelah maksimal attempts
-    if (attempts >= maxAttempts) {
-      console.log('⏰ Failed to find playable element after 30 seconds');
-      clearInterval(searchInterval);
-    }
-  }, 1000);
+    // Tunggu dan cek
+    setTimeout(() => {
+      const video = document.querySelector('video');
+      if (!video || video.paused) {
+        this.log('Alternative methods failed');
+      } else {
+        this.goBackAfterDelay();
+      }
+    }, 2000);
+  }
+
+  goBackAfterDelay() {
+    setTimeout(() => {
+      if (window.location.href.includes('/search?q=') && window.history.length > 1) {
+        this.log('↩️ Returning to previous page...');
+        window.history.back();
+      }
+    }, 3000);
+  }
+
+  log(...args) {
+    if (CONFIG.DEBUG) console.log('[SearchAutoplay]', ...args);
+  }
+
+  error(...args) {
+    console.error('[SearchAutoplay]', ...args);
+  }
 }
 
-// ================= FUNGSI UTAMA UNTUK UPDATE LAGU =================
-let lastSongTitle = '';
-let lastUpdateTime = 0;
+// ================= REQUEST PROCESSOR =================
+class RequestProcessor {
+  static isProcessing = false;
+  static lastRequestTime = 0;
+  static cooldown = 5000; // 5 detik cooldown
 
-async function updateCurrentSong() {
-  try {
-    const { title, artist } = getCurrentSongInfo();
-    const duration = getAccurateSongDuration();
-    
-    // Update hanya jika lagu berbeda atau sudah 30 detik
-    if (title !== lastSongTitle || Date.now() - lastUpdateTime > 30000) {
-      if (title && title !== 'Tidak diketahui') {
-        console.log(`🎵 Updating: ${title} - ${artist} (${Math.round(duration/1000)}s)`);
-        
-        const response = await fetch('http://localhost:3000/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            title, 
-            artist, 
-            duration: Math.round(duration)
-          })
-        });
-        
-        if (response.ok) {
-          lastSongTitle = title;
-          lastUpdateTime = Date.now();
-          updateDebugPanel(title, artist, duration);
-        }
-      }
+  static async checkRequests() {
+    // Cooldown untuk menghindari spam
+    if (this.isProcessing || Date.now() - this.lastRequestTime < this.cooldown) {
+      return;
     }
+
+    this.isProcessing = true;
     
-  } catch (error) {
-    console.error('❌ Error updating song:', error);
+    try {
+      const response = await fetch(`${CONFIG.SERVER_URL}/get-request`);
+      
+      if (response.status === 423) { // Locked
+        const data = await response.json();
+        this.log(`Request locked: ${data.remainingFormatted} remaining`);
+        return;
+      }
+      
+      if (response.status === 204) { // No content
+        return;
+      }
+      
+      const request = await response.json();
+      if (request && request.query) {
+        this.processRequest(request);
+      }
+    } catch (error) {
+      console.error('❌ Error checking requests:', error);
+    } finally {
+      this.isProcessing = false;
+      this.lastRequestTime = Date.now();
+    }
+  }
+
+  static async processRequest(request) {
+    this.log(`Processing request: "${request.query}"`);
+    
+    // Simpan request yang sedang diproses
+    state.lastProcessedRequest = request;
+    state.isProcessingRequest = true;
+    
+    // Update debug panel
+    DebugPanel.setStatus(`Processing: ${request.query}`);
+    
+    // Redirect ke halaman pencarian
+    const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(request.query)}`;
+    
+    // Cek jika kita sudah di halaman yang sama
+    if (window.location.href === searchUrl) {
+      this.log('Already on search page, starting autoplay');
+      new SearchAutoplay().start();
+    } else {
+      this.log(`Redirecting to: ${searchUrl}`);
+      window.location.href = searchUrl;
+    }
+  }
+
+  static log(...args) {
+    if (CONFIG.DEBUG) console.log('[RequestProcessor]', ...args);
+  }
+}
+
+// ================= SERVER API =================
+class ServerAPI {
+  static async notifySongEnded() {
+    try {
+      const response = await fetch(`${CONFIG.SERVER_URL}/song-ended`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          timestamp: Date.now(),
+          url: window.location.href 
+        })
+      });
+      
+      return response.json();
+    } catch (error) {
+      console.error('Failed to notify server:', error);
+      throw error;
+    }
+  }
+
+  static async skipCurrent() {
+    try {
+      const response = await fetch(`${CONFIG.SERVER_URL}/skip-current`, {
+        method: 'POST'
+      });
+      
+      return response.json();
+    } catch (error) {
+      console.error('Failed to skip:', error);
+      throw error;
+    }
   }
 }
 
 // ================= DEBUG PANEL =================
-function createDebugPanel() {
-  if (document.getElementById('ytm-debug-panel')) return;
-  
-  const panel = document.createElement('div');
-  panel.id = 'ytm-debug-panel';
-  panel.style.cssText = `
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    background: rgba(0, 0, 0, 0.95);
-    color: white;
-    padding: 15px;
-    border-radius: 10px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    font-size: 12px;
-    z-index: 999999;
-    border: 2px solid #ff0000;
-    max-width: 350px;
-    min-width: 300px;
-    box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
-    backdrop-filter: blur(10px);
-  `;
-  
-  panel.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <div style="font-weight: bold; color: #ff0000; font-size: 14px;">🎵 YT Music Bridge</div>
-      <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 10px;">Refresh</button>
-    </div>
-    <div style="margin-bottom: 5px;"><strong>Lagu:</strong> <span id="debug-title">-</span></div>
-    <div style="margin-bottom: 5px;"><strong>Artis:</strong> <span id="debug-artist">-</span></div>
-    <div style="margin-bottom: 5px;"><strong>Durasi:</strong> <span id="debug-duration">-</span></div>
-    <div style="margin-bottom: 5px;"><strong>Status:</strong> <span id="debug-status" style="color: #00ff00;">Aktif</span></div>
-    <div><strong>Waktu:</strong> <span id="debug-time">${new Date().toLocaleTimeString()}</span></div>
-  `;
-  
-  document.body.appendChild(panel);
-  
-  // Refresh button
-  document.getElementById('debug-refresh').addEventListener('click', () => {
-    location.reload();
-  });
-}
+class DebugPanel {
+  static panel = null;
+  static isVisible = true;
 
-function updateDebugPanel(title, artist, duration) {
-  const panel = document.getElementById('ytm-debug-panel');
-  if (!panel) createDebugPanel();
-  
-  const durationSec = Math.round(duration / 1000);
-  const minutes = Math.floor(durationSec / 60);
-  const seconds = durationSec % 60;
-  
-  document.getElementById('debug-title').textContent = title;
-  document.getElementById('debug-artist').textContent = artist;
-  document.getElementById('debug-duration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  document.getElementById('debug-time').textContent = new Date().toLocaleTimeString();
-}
-
-// ================= PROSES REQUEST DARI SERVER =================
-async function processRequests() {
-  try {
-    const response = await fetch('http://localhost:3000/get-request');
+  static create() {
+    if (this.panel) return;
     
-    if (response.status === 423) {
-      const data = await response.json();
-      const minutes = Math.ceil(data.lockRemaining / 60);
-      console.log(`⏳ Request locked: ${minutes} minutes remaining`);
-      return;
-    }
+    this.panel = document.createElement('div');
+    this.panel.id = 'ytm-debug-panel';
+    this.panel.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(15, 15, 15, 0.95);
+      color: white;
+      padding: 15px;
+      border-radius: 12px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 12px;
+      z-index: 999999;
+      border: 2px solid #ff4757;
+      max-width: 380px;
+      min-width: 320px;
+      box-shadow: 0 8px 32px rgba(255, 71, 87, 0.2);
+      backdrop-filter: blur(12px);
+      transition: all 0.3s ease;
+    `;
     
-    const data = await response.json();
-    if (data?.query) {
-      console.log(`🎵 Processing request: "${data.query}"`);
+    this.panel.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 12px; height: 12px; background: #ff4757; border-radius: 50%; animation: pulse 1.5s infinite;"></div>
+          <div style="font-weight: 800; color: #ff4757; font-size: 14px; letter-spacing: 0.5px;">🎵 YT MUSIC BRIDGE</div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button id="debug-toggle" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Toggle</button>
+          <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Refresh</button>
+        </div>
+      </div>
       
-      // Redirect ke halaman pencarian
-      const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(data.query)}`;
-      window.location.href = searchUrl;
+      <div style="margin-bottom: 8px;">
+        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">LAGU SAAT INI</div>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div><strong>Judul:</strong> <span id="debug-title" style="color: #fff; font-weight: 500;">-</span></div>
+          <div><strong>Artis:</strong> <span id="debug-artist" style="color: #1e90ff;">-</span></div>
+          <div><strong>Durasi:</strong> <span id="debug-duration" style="color: #2ed573;">-</span></div>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 8px;">
+        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">STATUS</div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div><strong>Status:</strong> <span id="debug-status" style="color: #2ed573;">Aktif</span></div>
+          <div><strong>Update:</strong> <span id="debug-time" style="color: #aaa;">${new Date().toLocaleTimeString()}</span></div>
+        </div>
+      </div>
+      
+      <div>
+        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">AKSI CEPAT</div>
+        <div style="display: flex; gap: 6px;">
+          <button id="debug-skip" style="flex: 1; background: #ffa502; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Skip Lagu</button>
+          <button id="debug-check" style="flex: 1; background: #3742fa; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Cek Request</button>
+        </div>
+      </div>
+      
+      <style>
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
+        }
+        
+        #debug-toggle:hover { background: #444 !important; }
+        #debug-refresh:hover { background: #444 !important; }
+        #debug-skip:hover { background: #ffb142 !important; }
+        #debug-check:hover { background: #5352ed !important; }
+      </style>
+    `;
+    
+    document.body.appendChild(this.panel);
+    this.setupEventListeners();
+  }
+
+  static setupEventListeners() {
+    // Toggle visibility
+    document.getElementById('debug-toggle').addEventListener('click', () => {
+      this.isVisible = !this.isVisible;
+      this.panel.style.display = this.isVisible ? 'block' : 'none';
+    });
+    
+    // Refresh page
+    document.getElementById('debug-refresh').addEventListener('click', () => {
+      location.reload();
+    });
+    
+    // Skip current song
+    document.getElementById('debug-skip').addEventListener('click', async () => {
+      try {
+        await ServerAPI.skipCurrent();
+        this.setStatus('Skipping current song...');
+        setTimeout(() => RequestProcessor.checkRequests(), 1000);
+      } catch (error) {
+        this.setStatus('Skip failed', true);
+      }
+    });
+    
+    // Check requests
+    document.getElementById('debug-check').addEventListener('click', () => {
+      RequestProcessor.checkRequests();
+      this.setStatus('Checking requests...');
+    });
+  }
+
+  static update(songInfo, duration) {
+    if (!this.panel) this.create();
+    
+    const durationSec = Math.round(duration / 1000);
+    const minutes = Math.floor(durationSec / 60);
+    const seconds = durationSec % 60;
+    
+    document.getElementById('debug-title').textContent = songInfo.title || '-';
+    document.getElementById('debug-artist').textContent = songInfo.artist || '-';
+    document.getElementById('debug-duration').textContent = 
+      `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    document.getElementById('debug-time').textContent = 
+      new Date().toLocaleTimeString();
+  }
+
+  static setStatus(message, isError = false) {
+    if (!this.panel) this.create();
+    
+    const statusElement = document.getElementById('debug-status');
+    statusElement.textContent = message;
+    statusElement.style.color = isError ? '#ff4757' : '#2ed573';
+    
+    // Reset setelah 3 detik
+    setTimeout(() => {
+      statusElement.textContent = 'Aktif';
+      statusElement.style.color = '#2ed573';
+    }, 3000);
+  }
+}
+
+// ================= URL MONITOR =================
+class URLMonitor {
+  static lastURL = '';
+  
+  static init() {
+    this.lastURL = window.location.href;
+    
+    // Monitor perubahan URL
+    setInterval(() => {
+      const currentURL = window.location.href;
+      if (currentURL !== this.lastURL) {
+        this.handleURLChange(this.lastURL, currentURL);
+        this.lastURL = currentURL;
+      }
+    }, 1000);
+    
+    // Event listener untuk popstate (back/forward)
+    window.addEventListener('popstate', () => {
+      setTimeout(() => {
+        this.handleURLChange(this.lastURL, window.location.href);
+        this.lastURL = window.location.href;
+      }, 100);
+    });
+  }
+  
+  static handleURLChange(oldURL, newURL) {
+    console.log(`🌐 URL changed: ${oldURL} → ${newURL}`);
+    
+    // Jika pindah ke halaman search
+    if (newURL.includes('/search?q=')) {
+      console.log('🔍 Search page detected, starting autoplay in 1.5s');
+      setTimeout(() => new SearchAutoplay().start(), 1500);
     }
-  } catch (error) {
-    console.error('❌ Error processing request:', error);
+    
+    // Reset song detection jika pindah halaman
+    if (!oldURL.includes('music.youtube.com') || !newURL.includes('music.youtube.com')) {
+      SongManager.lastTitle = '';
+      SongManager.lastArtist = '';
+    }
   }
 }
 
-// ================= INISIALISASI =================
-
-// Buat debug panel
-createDebugPanel();
-
-// Update lagu setiap 1 detik
-setInterval(updateCurrentSong, 1000);
-
-// Update pertama kali
-setTimeout(updateCurrentSong, 1000);
-
-// Proses request setiap 10 detik
-setInterval(processRequests, 10000);
-
-// ================= AUTO-PLAY DI HALAMAN PENCARIAN =================
-if (window.location.href.includes('/search?q=')) {
-  console.log('🔍 Search page detected, starting auto-play...');
+// ================= INISIALISASI UTAMA =================
+function initialize() {
+  console.log('🚀 Initializing YouTube Music Bridge...');
   
-  // Tunggu sebentar agar halaman selesai loading
-  setTimeout(() => {
-    setupSearchAutoPlay();
-  }, 2000);
+  // Inisialisasi komponen
+  new VideoMonitor();
+  URLMonitor.init();
+  DebugPanel.create();
+  
+  // Setup interval untuk update lagu
+  setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
+  
+  // Setup interval untuk cek request
+  setInterval(() => RequestProcessor.checkRequests(), CONFIG.REQUEST_CHECK_INTERVAL);
+  
+  // Update pertama kali
+  setTimeout(() => SongManager.update(), 1000);
+  
+  // Cek request pertama kali
+  setTimeout(() => RequestProcessor.checkRequests(), 2000);
+  
+  // Cek jika di halaman search
+  if (window.location.href.includes('/search?q=')) {
+    setTimeout(() => new SearchAutoplay().start(), 2000);
+  }
+  
+  console.log('✅ YouTube Music Bridge initialized successfully!');
+  DebugPanel.setStatus('Sistem aktif dan berjalan');
 }
 
-// ================= STYLE TAMBAHAN =================
-const style = document.createElement('style');
-style.textContent = `
-  #ytm-debug-panel {
-    animation: pulse 2s infinite;
-    transition: all 0.3s ease;
-  }
-  
-  #ytm-debug-panel:hover {
-    transform: scale(1.02);
-    box-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
-  }
-  
-  @keyframes pulse {
-    0% { border-color: #ff0000; }
-    50% { border-color: #ff6666; }
-    100% { border-color: #ff0000; }
-  }
-  
-  #debug-refresh:hover {
-    background: #555 !important;
-  }
-`;
-document.head.appendChild(style);
-
-console.log('🎵 YouTube Music Bridge initialized successfully!');
+// ================= START APPLICATION =================
+// Tunggu DOM siap
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize);
+} else {
+  initialize();
+}

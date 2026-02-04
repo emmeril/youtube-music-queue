@@ -1,0 +1,194 @@
+{
+  "history": [
+    {
+      "id": "ml8cnspztchq2whv58",
+      "song": {
+        "title": "Cindai",
+        "artist": "Siti Nurhaliza",
+        "duration": 296000,
+        "timestamp": 1770229034276,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=r8_x6XczCko"
+      },
+      "request": {
+        "id": "ml8cmw1x3zobx57zas9",
+        "query": "cindai",
+        "time": 1770228991941,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770228998795,
+        "estimatedDuration": 271000
+      },
+      "timestamp": 1770229034279,
+      "duration": 296000
+    },
+    {
+      "id": "ml8cngcthjfg5z2yevb",
+      "song": {
+        "title": "OPPO Reno15 Series | 50MP Ultra Wide Selfie Camera",
+        "artist": "OPPO Indonesia",
+        "duration": 15021,
+        "timestamp": 1770229018252,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=r8_x6XczCko"
+      },
+      "request": {
+        "id": "ml8cmw1x3zobx57zas9",
+        "query": "cindai",
+        "time": 1770228991941,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770228998795,
+        "estimatedDuration": 271000
+      },
+      "timestamp": 1770229018253,
+      "duration": 15021
+    },
+    {
+      "id": "ml8cnc33atipvv9xkgi",
+      "song": {
+        "title": "cindai",
+        "artist": "akan diputar setelah iklan",
+        "duration": 10000,
+        "timestamp": 1770229012719,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=r8_x6XczCko"
+      },
+      "request": {
+        "id": "ml8cmw1x3zobx57zas9",
+        "query": "cindai",
+        "time": 1770228991941,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770228998795,
+        "estimatedDuration": 271000
+      },
+      "timestamp": 1770229012719,
+      "duration": 10000
+    },
+    {
+      "id": "ml8cn6qvr51ezq0bs1p",
+      "song": {
+        "title": "cindai",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229005798,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=cindai"
+      },
+      "request": {
+        "id": "ml8cmw1x3zobx57zas9",
+        "query": "cindai",
+        "time": 1770228991941,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770228998795,
+        "estimatedDuration": 271000
+      },
+      "timestamp": 1770229005799,
+      "duration": 100000
+    },
+    {
+      "id": "ml8bbir1oj4smvp2dkd",
+      "song": {
+        "title": "Cundamani",
+        "artist": "Denny Caknan",
+        "duration": 287000,
+        "timestamp": 1770226781867,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=9X8pLgPwx5o"
+      },
+      "request": {
+        "id": "ml8b5ripd5fd48oxxh5",
+        "query": "cundamani",
+        "time": 1770226513297,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770226768108,
+        "estimatedDuration": 238000
+      },
+      "timestamp": 1770226781869,
+      "duration": 287000
+    },
+    {
+      "id": "ml8bbee7dfuhvcqtcip",
+      "song": {
+        "title": "cundamani",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770226776220,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=cundamani"
+      },
+      "request": {
+        "id": "ml8b5ripd5fd48oxxh5",
+        "query": "cundamani",
+        "time": 1770226513297,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770226768108,
+        "estimatedDuration": 238000
+      },
+      "timestamp": 1770226776223,
+      "duration": 100000
+    },
+    {
+      "id": "ml8b4hko2x8iz0q5b8f",
+      "song": {
+        "title": "Satru (feat. Happy Asmara)",
+        "artist": "Denny Caknan",
+        "duration": 311000,
+        "timestamp": 1770226453750,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=d-QqQUiIBKI"
+      },
+      "request": {
+        "id": "ml8b48w1meaqxp4dfda",
+        "query": "satru 1",
+        "time": 1770226442497,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770226442794,
+        "estimatedDuration": 311000
+      },
+      "timestamp": 1770226453752,
+      "duration": 311000
+    },
+    {
+      "id": "ml8b4d8r72bnujeip0w",
+      "song": {
+        "title": "satru 1",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770226448138,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=satru+1"
+      },
+      "request": {
+        "id": "ml8b48w1meaqxp4dfda",
+        "query": "satru 1",
+        "time": 1770226442497,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770226442794,
+        "estimatedDuration": 311000
+      },
+      "timestamp": 1770226448139,
+      "duration": 100000
+    }
+  ],
+  "stats": {
+    "totalRequests": 3,
+    "totalSongsPlayed": 8,
+    "totalPlayTime": 21
+  },
+  "lastUpdated": 1770229034279
+}

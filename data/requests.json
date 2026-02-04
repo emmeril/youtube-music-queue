@@ -1,0 +1,22 @@
+{
+  "queue": [
+    {
+      "id": "ml8coeb0tts82oe7zer",
+      "query": "blue youn kai",
+      "time": 1770229062252,
+      "status": "pending",
+      "addedBy": "::ffff:192.168.100.1"
+    }
+  ],
+  "activeRequest": {
+    "id": "ml8cmw1x3zobx57zas9",
+    "query": "cindai",
+    "time": 1770228991941,
+    "status": "playing",
+    "addedBy": "::ffff:192.168.100.1",
+    "startedAt": 1770228998795,
+    "estimatedDuration": 271000
+  },
+  "lockUntil": 1770229279795,
+  "lastUpdated": 1770229062252
+}
