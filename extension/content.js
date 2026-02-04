@@ -1,168 +1,36 @@
-// Fungsi untuk mendapatkan durasi lagu yang AKURAT dari YouTube Music
+// ================= FUNGSI UTAMA UNTUK MENDAPATKAN DURASI =================
 function getAccurateSongDuration() {
   try {
-    // ================= METODE 1: DARI VIDEO ELEMENT (Paling Akurat) =================
+    // Method 1: Dari video element
     const videoElement = document.querySelector('video');
     if (videoElement && !isNaN(videoElement.duration) && videoElement.duration > 0) {
-      console.log(`🎥 Video element duration: ${videoElement.duration.toFixed(0)}s`);
-      return videoElement.duration * 1000; // Convert to milliseconds
+      console.log(`🎥 Video duration: ${videoElement.duration}s`);
+      return videoElement.duration * 1000;
     }
     
-    // ================= METODE 2: DARI PROGRESS BAR UTAMA =================
-    // Cari semua progress bar dan pilih yang memiliki nilai terbesar
-    const progressBars = document.querySelectorAll('tp-yt-paper-progress, paper-progress, [role="progressbar"]');
-    
-    let maxDuration = 0;
-    let bestProgressBar = null;
-    
-    progressBars.forEach(bar => {
-      try {
-        // Coba baca dari aria-valuemax
-        const ariaMax = bar.getAttribute('aria-valuemax');
-        const ariaNow = bar.getAttribute('aria-valuenow');
-        
-        if (ariaMax && !isNaN(ariaMax)) {
-          const duration = parseFloat(ariaMax);
-          if (duration > maxDuration && duration > 60) { // Minimal 1 menit
-            maxDuration = duration;
-            bestProgressBar = bar;
-          }
-        }
-        
-        // Coba baca dari style transform
-        const primaryProgress = bar.querySelector('#primaryProgress, .progress-bar, [class*="progress"]');
-        if (primaryProgress) {
-          const style = window.getComputedStyle(primaryProgress);
-          const transform = style.transform;
-          if (transform && transform.includes('scaleX')) {
-            // Transform menunjukkan progress, tapi kita butuh total duration
-            // Cari di parent element untuk total time
-            const parent = bar.closest('ytmusic-player-bar, [player-bar], .player-bar');
-            if (parent) {
-              const timeElements = parent.querySelectorAll('span, div');
-              timeElements.forEach(el => {
-                const text = el.textContent;
-                if (text && text.includes('/')) {
-                  const parts = text.split('/');
-                  if (parts.length === 2) {
-                    const totalTime = parts[1].trim();
-                    const seconds = convertTimeToSeconds(totalTime);
-                    if (seconds > maxDuration) {
-                      maxDuration = seconds;
-                    }
-                  }
-                }
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.log('Error reading progress bar:', e);
-      }
-    });
-    
-    if (maxDuration > 0) {
-      console.log(`📊 Progress bar duration: ${maxDuration}s`);
-      return maxDuration * 1000;
-    }
-    
-    // ================= METODE 3: DARI TIME DISPLAY =================
-    // Cari semua elemen yang mungkin menampilkan waktu
-    const timeDisplays = document.querySelectorAll(
-      '.time-info, .ytp-time-duration, [class*="time"], [aria-label*="time"], span, div'
-    );
-    
-    let foundDuration = 0;
-    
-    for (const element of timeDisplays) {
-      try {
-        const text = element.textContent || element.getAttribute('aria-label') || '';
-        
-        // Pattern 1: "3:30 / 4:20" atau "1:23:45 / 2:34:56"
-        if (text.includes('/')) {
-          const parts = text.split('/');
-          if (parts.length === 2) {
-            const totalPart = parts[1].trim();
-            const seconds = convertTimeToSeconds(totalPart);
-            if (seconds > foundDuration && seconds > 60) {
-              foundDuration = seconds;
-              console.log(`⏰ Time display found: ${totalPart} = ${seconds}s`);
-            }
-          }
-        }
-        
-        // Pattern 2: Hanya durasi saja "3:30"
-        const timeMatch = text.match(/(\d+):(\d+)(?::(\d+))?/);
-        if (timeMatch) {
-          let seconds = 0;
-          if (timeMatch[3]) {
-            // Format HH:MM:SS
-            seconds = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]);
-          } else {
-            // Format MM:SS
-            seconds = parseInt(timeMatch[1]) * 60 + parseInt(timeMatch[2]);
-          }
-          
-          // Cek jika ini durasi lagu yang wajar (30 detik - 1 jam)
-          if (seconds >= 30 && seconds <= 3600 && seconds > foundDuration) {
-            // Cari konteks: apakah ini elemen durasi atau elemen lain?
-            const parentText = element.parentElement?.textContent || '';
-            if (parentText.includes('duration') || parentText.includes('length') || 
-                element.classList.contains('duration') || 
-                element.getAttribute('aria-label')?.includes('duration')) {
-              foundDuration = seconds;
-              console.log(`⏱️ Duration element found: ${text} = ${seconds}s`);
-            }
-          }
-        }
-      } catch (e) {
-        // Continue to next element
+    // Method 2: Dari progress bar YouTube Music
+    const progressBar = document.querySelector('tp-yt-paper-progress#sliderBar');
+    if (progressBar) {
+      const maxDuration = progressBar.getAttribute('aria-valuemax');
+      if (maxDuration && !isNaN(maxDuration) && parseFloat(maxDuration) > 0) {
+        console.log(`📊 Progress bar duration: ${maxDuration}s`);
+        return parseFloat(maxDuration) * 1000;
       }
     }
     
-    if (foundDuration > 0) {
-      return foundDuration * 1000;
-    }
-    
-    // ================= METODE 4: DARI PLAYER BAR =================
-    const playerBar = document.querySelector('ytmusic-player-bar');
-    if (playerBar) {
-      // Cari semua teks di dalam player bar
-      const playerText = playerBar.textContent;
-      
-      // Cari pola waktu
-      const timeRegex = /(\d+:\d+(?::\d+)?)\s*\/\s*(\d+:\d+(?::\d+)?)/g;
-      let match;
-      while ((match = timeRegex.exec(playerText)) !== null) {
-        const totalTime = match[2];
-        const seconds = convertTimeToSeconds(totalTime);
-        if (seconds > foundDuration) {
-          foundDuration = seconds;
-          console.log(`🎵 Player bar duration: ${totalTime} = ${seconds}s`);
-        }
-      }
-    }
-    
-    if (foundDuration > 0) {
-      return foundDuration * 1000;
-    }
-    
-    // ================= METODE 5: OBSERVER UNTUK MENDETEKSI PERUBAHAN =================
-    // Cari elemen yang mungkin update durasi secara dinamis
-    const possibleElements = document.querySelectorAll(
-      'ytmusic-player-bar, video, [duration], [aria-valuemax]'
-    );
-    
-    for (const element of possibleElements) {
-      // Coba berbagai properti
-      if (element.duration && !isNaN(element.duration)) {
-        return element.duration * 1000;
-      }
-      
-      if (element.getAttribute('aria-valuemax')) {
-        const max = parseFloat(element.getAttribute('aria-valuemax'));
-        if (max > 60) {
-          return max * 1000;
+    // Method 3: Dari time display (format: "1:23 / 3:45")
+    const timeDisplays = document.querySelectorAll('.time-info, .ytp-time-duration');
+    for (const display of timeDisplays) {
+      const text = display.textContent || '';
+      if (text.includes('/')) {
+        const parts = text.split('/');
+        if (parts.length === 2) {
+          const totalTime = parts[1].trim();
+          const seconds = convertTimeToSeconds(totalTime);
+          if (seconds > 0) {
+            console.log(`⏰ Time display: ${totalTime} = ${seconds}s`);
+            return seconds * 1000;
+          }
         }
       }
     }
@@ -172,20 +40,14 @@ function getAccurateSongDuration() {
   }
   
   // Default fallback
-  console.log('⚠️ Using default duration: 3 minutes');
+  console.log('⚠️ Using default duration: 180s');
   return 180000; // 3 minutes
 }
 
-// Helper function untuk konversi string waktu ke detik
 function convertTimeToSeconds(timeStr) {
   if (!timeStr) return 0;
   
-  timeStr = timeStr.trim();
-  
-  // Remove any non-numeric characters except colons
-  timeStr = timeStr.replace(/[^0-9:]/g, '');
-  
-  const parts = timeStr.split(':').map(part => parseInt(part) || 0);
+  const parts = timeStr.trim().split(':').map(part => parseInt(part) || 0);
   
   if (parts.length === 3) {
     // HH:MM:SS
@@ -193,114 +55,153 @@ function convertTimeToSeconds(timeStr) {
   } else if (parts.length === 2) {
     // MM:SS
     return parts[0] * 60 + parts[1];
-  } else if (parts.length === 1) {
-    // SS only
-    return parts[0];
   }
   
   return 0;
 }
 
-// Fungsi untuk mendapatkan info lagu
-function getSongInfo() {
-  let title = 'Tidak diketahui';
-  let artist = 'Tidak diketahui';
-  
+// ================= FUNGSI UNTUK MENDAPATKAN INFO LAGU =================
+function getCurrentSongInfo() {
   // Cari title
-  const titleElements = [
-    document.querySelector('ytmusic-player-bar .title'),
-    document.querySelector('.title.ytmusic-player-bar'),
-    document.querySelector('[title]'),
-    document.querySelector('h1, h2, h3')
-  ];
-  
-  for (const el of titleElements) {
-    if (el && el.textContent && el.textContent.trim()) {
-      title = el.textContent.trim();
-      break;
-    }
-  }
+  const titleElement = document.querySelector('ytmusic-player-bar .title') ||
+                      document.querySelector('.title.ytmusic-player-bar');
   
   // Cari artist
-  const artistElements = [
-    document.querySelector('ytmusic-player-bar .byline'),
-    document.querySelector('.byline.ytmusic-player-bar'),
-    document.querySelector('.subtitle'),
-    document.querySelector('[class*="artist"], [class*="singer"]')
-  ];
+  const artistElement = document.querySelector('ytmusic-player-bar .byline') ||
+                       document.querySelector('.byline.ytmusic-player-bar');
   
-  for (const el of artistElements) {
-    if (el && el.textContent && el.textContent.trim()) {
-      artist = el.textContent.trim();
-      
-      // Bersihkan artist name
-      if (artist.includes('•')) artist = artist.split('•')[0].trim();
-      if (artist.includes('-')) artist = artist.split('-')[0].trim();
-      if (artist.includes('·')) artist = artist.split('·')[0].trim();
-      
-      break;
-    }
-  }
+  let title = titleElement?.textContent?.trim() || 'Tidak diketahui';
+  let artist = artistElement?.textContent?.trim() || 'Tidak diketahui';
+  
+  // Bersihkan artist name
+  if (artist.includes('•')) artist = artist.split('•')[0].trim();
+  if (artist.includes('-')) artist = artist.split('-')[0].trim();
   
   return { title, artist };
 }
 
-// Fungsi untuk debug semua elemen waktu di halaman
-function debugAllTimeElements() {
-  console.log('🔍 Debug semua elemen waktu:');
+// ================= AUTO-PLAY UNTUK HALAMAN PENCARIAN =================
+function setupSearchAutoPlay() {
+  console.log('🔍 Setting up auto-play for search page...');
   
-  // Cari semua elemen dengan teks yang mengandung kolon
-  const allElements = document.querySelectorAll('*');
-  const timeElements = [];
+  let attempts = 0;
+  const maxAttempts = 30; // Maksimal 30 detik
   
-  allElements.forEach(el => {
-    if (el.textContent && el.textContent.includes(':')) {
-      const text = el.textContent.trim();
-      const timeMatch = text.match(/\d+:\d+(?::\d+)?/);
-      if (timeMatch) {
-        timeElements.push({
-          element: el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className : ''),
-          text: text.substring(0, 100),
-          time: timeMatch[0]
-        });
+  const searchInterval = setInterval(() => {
+    attempts++;
+    console.log(`🔄 Attempt ${attempts} to find search results...`);
+    
+    // Coba dengan selector yang berbeda-beda
+    const selectors = [
+      // Selector utama
+      'ytmusic-responsive-list-item-renderer a',
+      
+      // Selector alternatif
+      'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer',
+      'ytmusic-responsive-list-item-renderer [play-button]',
+      'ytmusic-responsive-list-item-renderer .play-button',
+      
+      // Selector fallback
+      'a[href*="/watch"]',
+      '.ytmusic-shelf-renderer a',
+      '.content-container a'
+    ];
+    
+    // Coba setiap selector
+    for (const selector of selectors) {
+      try {
+        const element = document.querySelector(selector);
+        if (element) {
+          console.log(`✅ Found element with selector: ${selector}`);
+          
+          // Klik elemen
+          element.click();
+          console.log('🎵 Clicked on song!');
+          
+          // Tunggu sebentar lalu kembali ke halaman sebelumnya
+          setTimeout(() => {
+            // Hanya kembali jika kita masih di halaman pencarian
+            if (window.location.href.includes('/search?q=')) {
+              console.log('↩️ Going back to previous page...');
+              if (window.history.length > 1) {
+                window.history.back();
+              }
+            }
+          }, 2000);
+          
+          clearInterval(searchInterval);
+          return;
+        }
+      } catch (error) {
+        console.error(`Error with selector ${selector}:`, error);
       }
     }
-  });
-  
-  // Log unique time elements
-  const uniqueTimes = [...new Set(timeElements.map(t => t.time))];
-  console.log('⏰ Waktu unik ditemukan:', uniqueTimes);
-  
-  // Cari yang kemungkinan adalah total duration (biasanya terakhir dalam format "current/total")
-  timeElements.forEach(item => {
-    if (item.text.includes('/')) {
-      console.log('📋 Format waktu dengan slash:', item);
+    
+    // Jika tidak ada yang ditemukan, coba cari dengan cara lain
+    if (attempts === 5 || attempts === 15) {
+      console.log('🔍 Trying alternative search methods...');
+      
+      // Method 1: Cari semua link yang mungkin
+      const allLinks = document.querySelectorAll('a');
+      for (const link of allLinks) {
+        const href = link.getAttribute('href') || '';
+        if (href.includes('/watch') && !href.includes('list=')) {
+          console.log('✅ Found watch link:', href);
+          link.click();
+          
+          setTimeout(() => {
+            if (window.history.length > 1) {
+              window.history.back();
+            }
+          }, 2000);
+          
+          clearInterval(searchInterval);
+          return;
+        }
+      }
+      
+      // Method 2: Cari tombol play
+      const playButtons = document.querySelectorAll('button, [role="button"]');
+      for (const button of playButtons) {
+        const label = button.getAttribute('aria-label') || button.textContent || '';
+        if (label.toLowerCase().includes('play') || label.includes('▶')) {
+          console.log('✅ Found play button:', label);
+          button.click();
+          
+          setTimeout(() => {
+            if (window.history.length > 1) {
+              window.history.back();
+            }
+          }, 2000);
+          
+          clearInterval(searchInterval);
+          return;
+        }
+      }
     }
-  });
+    
+    // Berhenti setelah maksimal attempts
+    if (attempts >= maxAttempts) {
+      console.log('⏰ Failed to find playable element after 30 seconds');
+      clearInterval(searchInterval);
+    }
+  }, 1000);
 }
 
-// ================= MAIN SCRIPT =================
-
+// ================= FUNGSI UTAMA UNTUK UPDATE LAGU =================
 let lastSongTitle = '';
-let lastDuration = 0;
-let debugMode = true;
+let lastUpdateTime = 0;
 
-// Update lagu ke server
 async function updateCurrentSong() {
   try {
-    const { title, artist } = getSongInfo();
+    const { title, artist } = getCurrentSongInfo();
     const duration = getAccurateSongDuration();
     
-    const durationSeconds = Math.round(duration / 1000);
-    const minutes = Math.floor(durationSeconds / 60);
-    const seconds = durationSeconds % 60;
-    
-    console.log(`🎵 Lagu: ${title} - ${artist}`);
-    console.log(`⏱️ Durasi terdeteksi: ${minutes}:${seconds.toString().padStart(2, '0')} (${durationSeconds} detik)`);
-    
-    // Update hanya jika lagu berbeda atau durasi berbeda signifikan (> 10 detik)
-    if (title !== lastSongTitle || Math.abs(duration - lastDuration) > 10000) {
+    // Update hanya jika lagu berbeda atau sudah 30 detik
+    if (title !== lastSongTitle || Date.now() - lastUpdateTime > 30000) {
       if (title && title !== 'Tidak diketahui') {
+        console.log(`🎵 Updating: ${title} - ${artist} (${Math.round(duration/1000)}s)`);
+        
         const response = await fetch('http://localhost:3000/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -313,69 +214,104 @@ async function updateCurrentSong() {
         
         if (response.ok) {
           lastSongTitle = title;
-          lastDuration = duration;
-          console.log('✅ Lagu berhasil diupdate ke server');
+          lastUpdateTime = Date.now();
+          updateDebugPanel(title, artist, duration);
         }
       }
     }
-    
-    // Update debug panel
-    updateDebugPanel(title, artist, duration);
     
   } catch (error) {
     console.error('❌ Error updating song:', error);
   }
 }
 
-// Update debug panel
-function updateDebugPanel(title, artist, duration) {
-  const durationSeconds = Math.round(duration / 1000);
-  const minutes = Math.floor(durationSeconds / 60);
-  const seconds = durationSeconds % 60;
-  
-  const debugElement = document.getElementById('ytm-debug-panel') || createDebugPanel();
-  
-  debugElement.innerHTML = `
-    <div style="margin-bottom: 5px; font-weight: bold; color: #00ff00;">🎵 YT Music Bridge v2</div>
-    <div><strong>Lagu:</strong> ${title}</div>
-    <div><strong>Artist:</strong> ${artist}</div>
-    <div><strong>Durasi:</strong> ${minutes}:${seconds.toString().padStart(2, '0')} (${durationSeconds}s)</div>
-    <div><strong>Status:</strong> <span id="debug-status">Aktif</span></div>
-    <div><strong>Waktu:</strong> ${new Date().toLocaleTimeString()}</div>
-    <button id="debug-btn" style="margin-top: 5px; padding: 2px 5px; font-size: 10px;">Debug</button>
-  `;
-  
-  // Debug button
-  document.getElementById('debug-btn').addEventListener('click', () => {
-    debugAllTimeElements();
-    console.log('🔍 Manual debug triggered');
-  });
-}
-
-// Create debug panel
+// ================= DEBUG PANEL =================
 function createDebugPanel() {
+  if (document.getElementById('ytm-debug-panel')) return;
+  
   const panel = document.createElement('div');
   panel.id = 'ytm-debug-panel';
   panel.style.cssText = `
     position: fixed;
-    bottom: 10px;
-    right: 10px;
-    background: rgba(0, 0, 0, 0.9);
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.95);
     color: white;
-    padding: 10px;
-    border-radius: 8px;
-    font-family: monospace;
-    font-size: 11px;
-    z-index: 9999;
-    border: 1px solid #00ff00;
-    max-width: 300px;
-    box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+    padding: 15px;
+    border-radius: 10px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 12px;
+    z-index: 999999;
+    border: 2px solid #ff0000;
+    max-width: 350px;
+    min-width: 300px;
+    box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
   `;
+  
+  panel.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <div style="font-weight: bold; color: #ff0000; font-size: 14px;">🎵 YT Music Bridge</div>
+      <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 10px;">Refresh</button>
+    </div>
+    <div style="margin-bottom: 5px;"><strong>Lagu:</strong> <span id="debug-title">-</span></div>
+    <div style="margin-bottom: 5px;"><strong>Artis:</strong> <span id="debug-artist">-</span></div>
+    <div style="margin-bottom: 5px;"><strong>Durasi:</strong> <span id="debug-duration">-</span></div>
+    <div style="margin-bottom: 5px;"><strong>Status:</strong> <span id="debug-status" style="color: #00ff00;">Aktif</span></div>
+    <div><strong>Waktu:</strong> <span id="debug-time">${new Date().toLocaleTimeString()}</span></div>
+  `;
+  
   document.body.appendChild(panel);
-  return panel;
+  
+  // Refresh button
+  document.getElementById('debug-refresh').addEventListener('click', () => {
+    location.reload();
+  });
 }
 
-// ================= INTERVAL UPDATES =================
+function updateDebugPanel(title, artist, duration) {
+  const panel = document.getElementById('ytm-debug-panel');
+  if (!panel) createDebugPanel();
+  
+  const durationSec = Math.round(duration / 1000);
+  const minutes = Math.floor(durationSec / 60);
+  const seconds = durationSec % 60;
+  
+  document.getElementById('debug-title').textContent = title;
+  document.getElementById('debug-artist').textContent = artist;
+  document.getElementById('debug-duration').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  document.getElementById('debug-time').textContent = new Date().toLocaleTimeString();
+}
+
+// ================= PROSES REQUEST DARI SERVER =================
+async function processRequests() {
+  try {
+    const response = await fetch('http://localhost:3000/get-request');
+    
+    if (response.status === 423) {
+      const data = await response.json();
+      const minutes = Math.ceil(data.lockRemaining / 60);
+      console.log(`⏳ Request locked: ${minutes} minutes remaining`);
+      return;
+    }
+    
+    const data = await response.json();
+    if (data?.query) {
+      console.log(`🎵 Processing request: "${data.query}"`);
+      
+      // Redirect ke halaman pencarian
+      const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(data.query)}`;
+      window.location.href = searchUrl;
+    }
+  } catch (error) {
+    console.error('❌ Error processing request:', error);
+  }
+}
+
+// ================= INISIALISASI =================
+
+// Buat debug panel
+createDebugPanel();
 
 // Update lagu setiap 3 detik
 setInterval(updateCurrentSong, 3000);
@@ -383,91 +319,42 @@ setInterval(updateCurrentSong, 3000);
 // Update pertama kali
 setTimeout(updateCurrentSong, 1000);
 
-// Ambil request dari server setiap 10 detik
-setInterval(async () => {
-  try {
-    const response = await fetch('http://localhost:3000/get-request');
-    
-    if (response.status === 423) {
-      const data = await response.json();
-      const minutes = Math.ceil(data.lockRemaining / 60);
-      console.log(`⏳ Request terkunci: ${minutes} menit tersisa`);
-      return;
-    }
-    
-    const data = await response.json();
-    if (data?.query) {
-      console.log(`🎵 Memproses request: ${data.query}`);
-      
-      const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(data.query)}`;
-      
-      if (window.location.href !== searchUrl) {
-        window.location.href = searchUrl;
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error fetching request:', error);
-  }
-}, 10000);
+// Proses request setiap 10 detik
+setInterval(processRequests, 10000);
 
-// Auto-play di halaman pencarian
-if (window.location.href.includes('music.youtube.com/search')) {
-  console.log('🔍 Di halaman pencarian, mencari lagu...');
+// ================= AUTO-PLAY DI HALAMAN PENCARIAN =================
+if (window.location.href.includes('/search?q=')) {
+  console.log('🔍 Search page detected, starting auto-play...');
   
-  let attempts = 0;
-  const maxAttempts = 30;
-  
-  const searchInterval = setInterval(() => {
-    attempts++;
-    
-    // Cari tombol play pertama
-    const playButtons = document.querySelectorAll(
-      'ytmusic-play-button-renderer, [aria-label*="play"], button[aria-label*="play"]'
-    );
-    
-    if (playButtons.length > 0) {
-      console.log(`✅ Ditemukan ${playButtons.length} tombol play`);
-      
-      // Coba klik tombol play pertama yang valid
-      for (const button of playButtons) {
-        if (button.offsetParent !== null) { // Cek jika elemen terlihat
-          button.click();
-          console.log('🎶 Memutar lagu...');
-          clearInterval(searchInterval);
-          
-          // Kembali ke halaman sebelumnya setelah 2 detik
-          setTimeout(() => {
-            if (window.history.length > 1) {
-              window.history.back();
-            }
-          }, 2000);
-          break;
-        }
-      }
-    }
-    
-    if (attempts >= maxAttempts) {
-      console.log('⏰ Gagal menemukan lagu setelah 30 detik');
-      clearInterval(searchInterval);
-    }
-  }, 1000);
+  // Tunggu sebentar agar halaman selesai loading
+  setTimeout(() => {
+    setupSearchAutoPlay();
+  }, 2000);
 }
 
-// Tambahkan style untuk debug panel
+// ================= STYLE TAMBAHAN =================
 const style = document.createElement('style');
 style.textContent = `
   #ytm-debug-panel {
     animation: pulse 2s infinite;
+    transition: all 0.3s ease;
+  }
+  
+  #ytm-debug-panel:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
   }
   
   @keyframes pulse {
-    0% { border-color: #00ff00; }
-    50% { border-color: #009900; }
-    100% { border-color: #00ff00; }
+    0% { border-color: #ff0000; }
+    50% { border-color: #ff6666; }
+    100% { border-color: #ff0000; }
+  }
+  
+  #debug-refresh:hover {
+    background: #555 !important;
   }
 `;
 document.head.appendChild(style);
 
-// Initial debug
-console.log('🎵 YouTube Music Bridge v2 loaded');
-console.log('📊 Debug mode:', debugMode);
+console.log('🎵 YouTube Music Bridge initialized successfully!');
