@@ -6,51 +6,140 @@
 </head>
 <body class="bg-zinc-950 text-white flex flex-col items-center justify-center min-h-screen">
    <div x-data="{
-  song: { title: 'Idle', artist: '...' },
+  song: { title: 'Idle', artist: '...', duration: 0, confidence: 0 },
   query: '',
   requests: [],
+  lockTime: 0,
   async init() {
     setInterval(async () => {
-      this.song = await (await fetch('/status')).json();
-      this.requests = await (await fetch('/requests')).json();
+      try {
+        const statusRes = await fetch('/status');
+        this.song = await statusRes.json();
+        
+        const requestsRes = await fetch('/requests');
+        this.requests = await requestsRes.json();
+        
+        const lockRes = await fetch('/lock-status');
+        const lockData = await lockRes.json();
+        
+        if (lockData.isLocked) {
+          this.lockTime = Math.max(1, Math.ceil(lockData.remainingSeconds / 60));
+        } else {
+          this.lockTime = 0;
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
     }, 2000);
   },
   async sendReq() {
-    if (!this.query) return;
-    await fetch('/request-song', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ query: this.query })
-    });
-    this.query = '';
+    if (!this.query.trim()) {
+      alert('Masukkan judul atau artis lagu');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/request-song', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ query: this.query })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert('Request berhasil ditambahkan!');
+        this.query = '';
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      alert('Gagal mengirim request. Pastikan server berjalan.');
+    }
+  },
+  formatDuration(ms) {
+    if (!ms) return '0:00';
+    const seconds = Math.round(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   }
-}" class="p-8 bg-zinc-900 rounded-3xl w-96">
+}" class="p-8 bg-zinc-900 rounded-3xl w-full max-w-md">
 
   <!-- current song -->
   <div class="text-center mb-6">
     <h1 class="text-xl font-bold truncate" x-text="song.title"></h1>
-    <p class="text-zinc-400 text-sm" x-text="song.artist"></p>
+    <p class="text-zinc-400 text-sm truncate" x-text="song.artist"></p>
+    
+    <div class="mt-2 text-xs">
+      <div class="flex items-center justify-center gap-2">
+        <span>Durasi:</span>
+        <span class="font-mono" x-text="formatDuration(song.duration)"></span>
+        <span class="text-zinc-500" x-text="'(' + song.confidence + '% confidence)'"></span>
+      </div>
+    </div>
+    
+    <div x-show="lockTime > 0" class="mt-2 text-xs text-amber-400 bg-amber-900/30 px-3 py-1 rounded-full inline-block">
+      🔒 Request terkunci selama <span x-text="lockTime"></span> menit
+    </div>
   </div>
 
   <!-- request form -->
-  <input x-model="query" @keydown.enter="sendReq"
-    placeholder="Judul lagu / artis"
-    class="w-full bg-black border border-zinc-700 p-3 rounded-xl mb-3 text-sm">
-
-  <button @click="sendReq"
-    class="w-full bg-red-600 p-3 rounded-xl font-bold mb-5">
-    Request Lagu
-  </button>
+  <div class="mb-5">
+    <input x-model="query" @keydown.enter="sendReq"
+      placeholder="Judul lagu atau nama artis"
+      class="w-full bg-black border border-zinc-700 p-3 rounded-xl mb-3 text-sm focus:outline-none focus:border-red-500 transition-colors">
+    
+    <button @click="sendReq"
+      class="w-full bg-red-600 hover:bg-red-700 p-3 rounded-xl font-bold transition-colors">
+      Request Lagu
+    </button>
+  </div>
 
   <!-- request list -->
   <div>
-    <h2 class="text-sm font-bold mb-2 text-zinc-300">Antrian Lagu</h2>
-    <template x-for="(r, i) in requests" :key="i">
-      <div class="text-xs text-zinc-400 truncate">
-        • <span x-text="r.query"></span>
+    <div class="flex justify-between items-center mb-2">
+      <h2 class="text-sm font-bold text-zinc-300">Antrian Lagu</h2>
+      <span class="text-xs text-zinc-500" x-text="requests.length + ' lagu'"></span>
+    </div>
+    
+    <div class="max-h-60 overflow-y-auto">
+      <template x-for="(r, i) in requests" :key="i">
+        <div class="text-xs text-zinc-400 truncate mb-2 p-2 bg-zinc-800/50 rounded-lg">
+          <div class="flex justify-between items-center">
+            <span class="font-medium" x-text="r.query"></span>
+            <span class="text-zinc-600 text-[10px]" 
+                  x-text="new Date(r.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></span>
+          </div>
+        </div>
+      </template>
+      
+      <div x-show="requests.length === 0" 
+           class="text-center text-zinc-600 italic py-4 text-sm">
+        Belum ada request
       </div>
-    </template>
+    </div>
   </div>
 </div>
+
+<!-- Footer info -->
+<div class="mt-4 text-xs text-zinc-600 text-center">
+  <p>Pastikan extension aktif di YouTube Music</p>
+  <p>Server: <span id="server-status" class="text-green-400">Connected</span></p>
+</div>
+
+<script>
+  // Check server connection
+  setInterval(async () => {
+    try {
+      await fetch('/status');
+      document.getElementById('server-status').textContent = 'Connected';
+      document.getElementById('server-status').className = 'text-green-400';
+    } catch {
+      document.getElementById('server-status').textContent = 'Disconnected';
+      document.getElementById('server-status').className = 'text-red-400';
+    }
+  }, 5000);
+</script>
 </body>
 </html>
