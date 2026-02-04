@@ -5,34 +5,52 @@
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-zinc-950 text-white flex flex-col items-center justify-center min-h-screen">
-    <div x-data="{ 
-        song: { title: 'Idle', artist: '...' },
-        query: '',
-        async init() {
-            setInterval(async () => {
-                const res = await fetch('/status');
-                this.song = await res.json();
-            }, 2000);
-        },
-        async sendReq() {
-            await fetch('/request-song', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ query: this.query })
-            });
-            this.query = '';
-        }
-    }" class="p-10 bg-zinc-900 rounded-3xl border border-zinc-800 w-80 shadow-2xl">
-        
-        <div class="text-center mb-8">
-            <h1 class="text-2xl font-bold truncate" x-text="song.title"></h1>
-            <p class="text-zinc-500" x-text="song.artist"></p>
-        </div>
+   <div x-data="{
+  song: { title: 'Idle', artist: '...' },
+  query: '',
+  requests: [],
+  async init() {
+    setInterval(async () => {
+      this.song = await (await fetch('/status')).json();
+      this.requests = await (await fetch('/requests')).json();
+    }, 2000);
+  },
+  async sendReq() {
+    if (!this.query) return;
+    await fetch('/request-song', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query: this.query })
+    });
+    this.query = '';
+  }
+}" class="p-8 bg-zinc-900 rounded-3xl w-96">
 
-        <input x-model="query" @keydown.enter="sendReq()" placeholder="Cari Lagu..." 
-               class="w-full bg-black border border-zinc-700 p-3 rounded-xl mb-4 text-sm focus:outline-none focus:border-red-500">
-        
-        <button @click="sendReq()" class="w-full bg-red-600 p-3 rounded-xl font-bold">Request</button>
-    </div>
+  <!-- current song -->
+  <div class="text-center mb-6">
+    <h1 class="text-xl font-bold truncate" x-text="song.title"></h1>
+    <p class="text-zinc-400 text-sm" x-text="song.artist"></p>
+  </div>
+
+  <!-- request form -->
+  <input x-model="query" @keydown.enter="sendReq"
+    placeholder="Judul lagu / artis"
+    class="w-full bg-black border border-zinc-700 p-3 rounded-xl mb-3 text-sm">
+
+  <button @click="sendReq"
+    class="w-full bg-red-600 p-3 rounded-xl font-bold mb-5">
+    Request Lagu
+  </button>
+
+  <!-- request list -->
+  <div>
+    <h2 class="text-sm font-bold mb-2 text-zinc-300">Antrian Lagu</h2>
+    <template x-for="(r, i) in requests" :key="i">
+      <div class="text-xs text-zinc-400 truncate">
+        • <span x-text="r.query"></span>
+      </div>
+    </template>
+  </div>
+</div>
 </body>
 </html>
