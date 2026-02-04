@@ -1,6 +1,121 @@
 {
   "history": [
     {
+      "id": "ml8ddvvnr4kd5hgrneo",
+      "song": {
+        "title": "Creep",
+        "artist": "Radiohead",
+        "duration": 239000,
+        "timestamp": 1770230251426,
+        "confidence": 95,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=9RfVp-GhKfs"
+      },
+      "request": {
+        "id": "ml8dax79k0kxgp8jecr",
+        "query": "creep",
+        "time": 1770230113173,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770230237836,
+        "estimatedDuration": 342601
+      },
+      "timestamp": 1770230251427,
+      "duration": 239000
+    },
+    {
+      "id": "ml8ddu88u4f5rfpnmh",
+      "song": {
+        "title": "Creep",
+        "artist": "Radiohead",
+        "duration": 100000,
+        "timestamp": 1770230249287,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=9RfVp-GhKfs"
+      },
+      "request": {
+        "id": "ml8dax79k0kxgp8jecr",
+        "query": "creep",
+        "time": 1770230113173,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770230237836,
+        "estimatedDuration": 342601
+      },
+      "timestamp": 1770230249288,
+      "duration": 100000
+    },
+    {
+      "id": "ml8ddpzyg2vbyjq097",
+      "song": {
+        "title": "creep",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770230243806,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=creep"
+      },
+      "request": {
+        "id": "ml8dax79k0kxgp8jecr",
+        "query": "creep",
+        "time": 1770230113173,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770230237836,
+        "estimatedDuration": 342601
+      },
+      "timestamp": 1770230243806,
+      "duration": 100000
+    },
+    {
+      "id": "ml8d8771ypsfjhan1qd",
+      "song": {
+        "title": "Mangan Ra Njaluk Kowe",
+        "artist": "Leona Zhen",
+        "duration": 343000,
+        "timestamp": 1770229986156,
+        "confidence": 70,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/watch?v=n3NM2rkX1W4"
+      },
+      "request": {
+        "id": "ml8d4wfn5m8v91qm31x",
+        "query": "rajaluk kowe",
+        "time": 1770229832243,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229973036,
+        "estimatedDuration": 412101
+      },
+      "timestamp": 1770229986157,
+      "duration": 343000
+    },
+    {
+      "id": "ml8d81ikmq8s6i1al3n",
+      "song": {
+        "title": "rajaluk kowe",
+        "artist": "Tidak diketahui",
+        "duration": 100000,
+        "timestamp": 1770229978796,
+        "confidence": 60,
+        "isPlaying": true,
+        "url": "https://music.youtube.com/search?q=rajaluk+kowe"
+      },
+      "request": {
+        "id": "ml8d4wfn5m8v91qm31x",
+        "query": "rajaluk kowe",
+        "time": 1770229832243,
+        "status": "playing",
+        "addedBy": "::ffff:192.168.100.1",
+        "startedAt": 1770229973036,
+        "estimatedDuration": 412101
+      },
+      "timestamp": 1770229978796,
+      "duration": 100000
+    },
+    {
       "id": "ml8d1czf4lxg3z7j7dm",
       "song": {
         "title": "Cundamani (Live)",
@@ -370,9 +485,9 @@
     }
   ],
   "stats": {
-    "totalRequests": 6,
-    "totalSongsPlayed": 16,
-    "totalPlayTime": 47
+    "totalRequests": 8,
+    "totalSongsPlayed": 21,
+    "totalPlayTime": 63
   },
-  "lastUpdated": 1770229667067
+  "lastUpdated": 1770230251427
 }

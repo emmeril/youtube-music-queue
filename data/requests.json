@@ -1,14 +1,6 @@
 {
   "queue": [],
-  "activeRequest": {
-    "id": "ml8cv7vmkzqnzll27jd",
-    "query": "cundamani",
-    "time": 1770229380514,
-    "status": "playing",
-    "addedBy": "::ffff:192.168.100.1",
-    "startedAt": 1770229651042,
-    "estimatedDuration": 311021
-  },
-  "lockUntil": 1770229972063,
-  "lastUpdated": 1770229651042
+  "activeRequest": null,
+  "lockUntil": 0,
+  "lastUpdated": 1770230488365
 }
