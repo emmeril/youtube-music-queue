@@ -143,26 +143,29 @@
                             <i class="fas fa-music text-3xl text-white"></i>
                         </div>
                         
-                        <!-- Song Info -->
-                        <div class="flex-1">
-                            <div class="text-2xl font-bold mb-2 truncate" x-text="currentSong.title || 'Tidak ada lagu'"></div>
-                            <div class="text-lg text-gray-300 mb-4 truncate" x-text="currentSong.artist || 'Unknown artist'"></div>
-                            
-                            <div class="flex flex-wrap items-center gap-4">
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-clock text-gray-400"></i>
-                                    <span class="font-mono" x-text="formatDuration(currentSong.duration)"></span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-chart-line text-gray-400"></i>
-                                    <span x-text="currentSong.confidence + '% confidence'"></span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-wifi text-gray-400"></i>
-                                    <span x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
-                                </div>
-                            </div>
-                        </div>
+                        
+                      <!-- Song Info -->
+<div class="flex-1">
+    <div class="text-2xl font-bold mb-2 break-words whitespace-normal max-w-full" 
+         x-text="currentSong.title || 'Tidak ada lagu'"></div>
+    <div class="text-lg text-gray-300 mb-4 break-words whitespace-normal max-w-full" 
+         x-text="currentSong.artist || 'Unknown artist'"></div>
+    
+    <div class="flex flex-wrap items-center gap-4">
+        <div class="flex items-center gap-2">
+            <i class="fas fa-clock text-gray-400"></i>
+            <span class="font-mono" x-text="formatDuration(currentSong.duration)"></span>
+        </div>
+        <div class="flex items-center gap-2">
+            <i class="fas fa-chart-line text-gray-400"></i>
+            <span x-text="currentSong.confidence + '% confidence'"></span>
+        </div>
+        <div class="flex items-center gap-2">
+            <i class="fas fa-wifi text-gray-400"></i>
+            <span x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
+        </div>
+    </div>
+</div>
                     </div>
                     
                     <!-- Progress Bar -->
