@@ -153,8 +153,8 @@ function calculateConfidence(song) {
 }
 
 function calculateLockDuration(songDuration) {
-  // Durasi lock = durasi lagu + buffer 10 detik
-  return (songDuration || 180000) + 10000;
+  // Durasi lock = durasi lagu + buffer 1 detik
+  return (songDuration || 180000) + 1;
 }
 
 function scheduleAutoUnlock(lockDuration) {
