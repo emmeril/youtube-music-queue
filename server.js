@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -8,6 +9,11 @@ const PORT = 4786;
 
 // Konstanta batas antrian
 const QUEUE_LIMIT = 100;
+
+// Konstanta admin
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+let adminSession = null;
+const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 
 // File untuk persistensi data
 const REQUESTS_FILE = path.join(__dirname, 'data', 'requests.json');
@@ -22,6 +28,29 @@ if (!fs.existsSync(path.join(__dirname, 'data'))) {
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ================= MIDDLEWARE ADMIN =================
+function requireAdmin(req, res, next) {
+  const sessionToken = req.headers['x-admin-token'];
+  
+  if (!sessionToken || !adminSession || adminSession.token !== sessionToken) {
+    return res.status(403).json({ 
+      error: 'Akses ditolak. Hanya admin yang bisa melakukan aksi ini.',
+      requiresAdmin: true 
+    });
+  }
+  
+  // Cek session expired
+  if (Date.now() > adminSession.expires) {
+    adminSession = null;
+    return res.status(403).json({ 
+      error: 'Session admin telah kadaluarsa. Silakan login kembali.',
+      sessionExpired: true 
+    });
+  }
+  
+  next();
+}
 
 // ================= STATE MANAGEMENT =================
 let state = {
@@ -229,7 +258,59 @@ function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
 
 // ================= API ENDPOINTS =================
 
-// 1. UPDATE SONG (dipanggil oleh extension)
+// 1. ADMIN LOGIN
+app.post('/admin/login', (req, res) => {
+  const { password } = req.body;
+  
+  if (!password) {
+    return res.status(400).json({ error: 'Password diperlukan' });
+  }
+  
+  if (password === ADMIN_PASSWORD) {
+    // Buat session token
+    const token = Date.now().toString(36) + Math.random().toString(36).substr(2);
+    
+    adminSession = {
+      token,
+      expires: Date.now() + SESSION_DURATION,
+      createdAt: Date.now()
+    };
+    
+    console.log(`🔐 Admin login successful`);
+    
+    res.json({
+      success: true,
+      token,
+      expiresIn: SESSION_DURATION,
+      expiresAt: adminSession.expires
+    });
+  } else {
+    res.status(401).json({ error: 'Password salah' });
+  }
+});
+
+// 2. ADMIN LOGOUT
+app.post('/admin/logout', requireAdmin, (req, res) => {
+  adminSession = null;
+  console.log(`🔐 Admin logged out`);
+  res.json({ success: true, message: 'Logout berhasil' });
+});
+
+// 3. CHECK ADMIN STATUS
+app.get('/admin/status', (req, res) => {
+  const sessionToken = req.headers['x-admin-token'];
+  const isAdmin = adminSession && 
+                  adminSession.token === sessionToken && 
+                  Date.now() < adminSession.expires;
+  
+  res.json({
+    isAdmin,
+    expiresAt: isAdmin ? adminSession.expires : null,
+    remainingTime: isAdmin ? adminSession.expires - Date.now() : 0
+  });
+});
+
+// 4. UPDATE SONG (dipanggil oleh extension)
 app.post('/update', (req, res) => {
   try {
     const { title, artist, duration, timestamp, isNewSong, url } = req.body;
@@ -291,7 +372,7 @@ app.post('/update', (req, res) => {
   }
 });
 
-// 2. GET CURRENT STATUS
+// 5. GET CURRENT STATUS
 app.get('/status', (req, res) => {
   const now = Date.now();
   const lockRemaining = Math.max(0, state.requestLockUntil - now);
@@ -316,7 +397,7 @@ app.get('/status', (req, res) => {
   });
 });
 
-// 3. GET NEXT REQUEST (dipanggil oleh extension)
+// 6. GET NEXT REQUEST (dipanggil oleh extension)
 app.get('/get-request', (req, res) => {
   const now = Date.now();
   
@@ -381,7 +462,7 @@ app.get('/get-request', (req, res) => {
   });
 });
 
-// 4. ADD NEW REQUEST
+// 7. ADD NEW REQUEST
 app.post('/request-song', (req, res) => {
   try {
     const { query } = req.body;
@@ -444,7 +525,58 @@ app.post('/request-song', (req, res) => {
   }
 });
 
-// 5. GET ALL REQUESTS
+// 8. MOVE REQUEST POSITION (Admin only)
+app.post('/admin/move-request', requireAdmin, (req, res) => {
+  const { requestId, newPosition } = req.body;
+  
+  if (!requestId || !newPosition) {
+    return res.status(400).json({ error: 'requestId dan newPosition diperlukan' });
+  }
+  
+  // Validasi newPosition (1-based index)
+  if (newPosition < 1 || newPosition > state.requestQueue.length) {
+    return res.status(400).json({ 
+      error: `Posisi harus antara 1 dan ${state.requestQueue.length}` 
+    });
+  }
+  
+  const currentIndex = state.requestQueue.findIndex(req => req.id === requestId);
+  
+  if (currentIndex === -1) {
+    return res.status(404).json({ error: 'Request tidak ditemukan' });
+  }
+  
+  // Jika posisi sama, tidak perlu melakukan apa-apa
+  if (currentIndex + 1 === newPosition) {
+    return res.json({ 
+      success: true, 
+      message: 'Posisi tidak berubah' 
+    });
+  }
+  
+  // Pindahkan request ke posisi baru (0-based index)
+  const [requestToMove] = state.requestQueue.splice(currentIndex, 1);
+  state.requestQueue.splice(newPosition - 1, 0, requestToMove);
+  
+  saveRequests();
+  
+  console.log(`🔄 Admin moved request "${requestToMove.query}" from position ${currentIndex + 1} to ${newPosition}`);
+  
+  res.json({
+    success: true,
+    message: `Request berhasil dipindahkan ke posisi ${newPosition}`,
+    request: requestToMove,
+    oldPosition: currentIndex + 1,
+    newPosition,
+    queue: state.requestQueue.map((req, idx) => ({
+      id: req.id,
+      query: req.query,
+      position: idx + 1
+    }))
+  });
+});
+
+// 9. GET ALL REQUESTS
 app.get('/requests', (req, res) => {
   const requestsWithWait = state.requestQueue.map((req, index) => ({
     ...req,
@@ -465,7 +597,7 @@ app.get('/requests', (req, res) => {
   });
 });
 
-// 6. SONG ENDED (dipanggil ketika lagu selesai)
+// 10. SONG ENDED (dipanggil ketika lagu selesai)
 app.post('/song-ended', (req, res) => {
   const now = Date.now();
   
@@ -499,7 +631,7 @@ app.post('/song-ended', (req, res) => {
   });
 });
 
-// 7. VERIFY SONG MATCH
+// 11. VERIFY SONG MATCH
 app.post('/verify-match', (req, res) => {
   const { title, artist } = req.body;
   
@@ -533,8 +665,8 @@ app.post('/verify-match', (req, res) => {
   res.json(matchData);
 });
 
-// 8. SKIP CURRENT REQUEST
-app.post('/skip-current', (req, res) => {
+// 12. SKIP CURRENT REQUEST (Admin only)
+app.post('/skip-current', requireAdmin, (req, res) => {
   console.log('⏭️ Skip current request requested');
   
   // Hapus timeout auto-unlock
@@ -564,8 +696,8 @@ app.post('/skip-current', (req, res) => {
   });
 });
 
-// 9. FORCE NEXT (emergency skip)
-app.post('/force-next', (req, res) => {
+// 13. FORCE NEXT (Admin only)
+app.post('/force-next', requireAdmin, (req, res) => {
   console.log('⚡ Force next requested');
   
   // Hapus timeout auto-unlock
@@ -593,8 +725,8 @@ app.post('/force-next', (req, res) => {
   });
 });
 
-// 10. REMOVE SPECIFIC REQUEST
-app.delete('/remove-request/:id', (req, res) => {
+// 14. REMOVE SPECIFIC REQUEST (Admin only)
+app.delete('/remove-request/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const index = state.requestQueue.findIndex(req => req.id === id);
   
@@ -631,8 +763,8 @@ app.delete('/remove-request/:id', (req, res) => {
   });
 });
 
-// 11. CLEAR ALL REQUESTS
-app.delete('/clear-requests', (req, res) => {
+// 15. CLEAR ALL REQUESTS (Admin only)
+app.delete('/clear-requests', requireAdmin, (req, res) => {
   const previousCount = state.requestQueue.length;
   
   state.requestQueue = [];
@@ -658,7 +790,7 @@ app.delete('/clear-requests', (req, res) => {
   });
 });
 
-// 12. GET QUEUE INFO
+// 16. GET QUEUE INFO
 app.get('/queue-info', (req, res) => {
   const now = Date.now();
   const isLocked = now < state.requestLockUntil;
@@ -696,7 +828,7 @@ app.get('/queue-info', (req, res) => {
   res.json(queueInfo);
 });
 
-// 13. GET HISTORY
+// 17. GET HISTORY
 app.get('/history', (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   const offset = parseInt(req.query.offset) || 0;
@@ -712,7 +844,7 @@ app.get('/history', (req, res) => {
   });
 });
 
-// 14. GET STATS
+// 18. GET STATS
 app.get('/stats', (req, res) => {
   const now = Date.now();
   const uptime = Math.round((now - (state.history[0]?.timestamp || now)) / 1000);
@@ -732,7 +864,7 @@ app.get('/stats', (req, res) => {
   });
 });
 
-// 15. HEALTH CHECK
+// 19. HEALTH CHECK
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -773,6 +905,14 @@ setInterval(() => {
   }
 }, 10000); // Cek setiap 10 detik
 
+// ================= AUTO-CLEANUP ADMIN SESSION =================
+setInterval(() => {
+  if (adminSession && Date.now() > adminSession.expires) {
+    console.log('🔄 Admin session expired, cleaning up');
+    adminSession = null;
+  }
+}, 60000); // Cek setiap menit
+
 // ================= SERVE WEB INTERFACE =================
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -784,10 +924,11 @@ loadData();
 
 app.listen(PORT, () => {
   console.log("=".repeat(50));
-  console.log("✅ YouTube Music Bridge Server");
+  console.log("✅ YouTube Music Bridge Server with Admin");
   console.log(`📍 Running at: http://localhost:${PORT}`);
   console.log(`📊 Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
   console.log(`🎵 Current song: ${state.currentSong.title}`);
+  console.log(`🔐 Admin password: ${ADMIN_PASSWORD}`);
   console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
   console.log("=".repeat(50));
   

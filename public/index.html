@@ -40,6 +40,9 @@
             background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
             transition: width 0.3s ease;
         }
+        .admin-badge {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -65,6 +68,29 @@
                         <i class="fas fa-sync-alt" :class="isRefreshing ? 'animate-spin' : ''"></i>
                         <span class="ml-2 hidden md:inline">Refresh</span>
                     </button>
+                    
+                    <!-- Tombol Admin -->
+                    <template x-if="!isAdmin">
+                        <button @click="showAdminLogin = true" 
+                                class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                            <i class="fas fa-user-shield mr-2"></i>
+                            <span class="hidden md:inline">Admin Login</span>
+                        </button>
+                    </template>
+
+                    <template x-if="isAdmin">
+                        <div class="flex items-center gap-2">
+                            <div class="text-sm text-green-400 px-3 py-1 admin-badge rounded-lg">
+                                <i class="fas fa-user-shield mr-1"></i>
+                                <span class="hidden md:inline">Admin Mode</span>
+                                <span class="text-xs text-green-300 ml-1" x-text="formatAdminTimeLeft()"></span>
+                            </div>
+                            <button @click="adminLogout()" 
+                                    class="px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </button>
+                        </div>
+                    </template>
                 </div>
             </div>
         </header>
@@ -126,6 +152,18 @@
                             Lock duration: <span x-text="formatDuration(lockInfo.originalLock)"></span> 
                             (based on current song)
                         </div>
+                    </div>
+
+                    <!-- Admin Controls -->
+                    <div class="mt-6 flex gap-2" x-show="isAdmin">
+                        <button @click="skipCurrent()"
+                                class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors">
+                            <i class="fas fa-forward mr-2"></i>Skip Current
+                        </button>
+                        <button @click="forceNext()"
+                                class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
+                            <i class="fas fa-step-forward mr-2"></i>Force Next
+                        </button>
                     </div>
                 </div>
             </div>
@@ -192,8 +230,8 @@
                 
                 <div class="flex gap-2">
                     <button @click="clearQueue()" 
-                            x-show="queue.length > 0"
-                            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                            x-show="isAdmin && queue.length > 0"
+                            class="px-4 py-2 bg-red-800 hover:bg-red-700 rounded-lg transition-colors">
                         <i class="fas fa-trash mr-2"></i>Hapus Semua
                     </button>
                 </div>
@@ -245,13 +283,32 @@
                             
                             <!-- Actions -->
                             <div class="flex items-center gap-2">
+                                <!-- Tombol Pindah Posisi (hanya admin) -->
+                                <template x-if="isAdmin">
+                                    <div class="flex items-center gap-1">
+                                        <button @click="moveRequestUp(item.id, index)"
+                                                :disabled="index === 0"
+                                                class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                                                title="Pindah ke atas">
+                                            <i class="fas fa-arrow-up"></i>
+                                        </button>
+                                        <button @click="moveRequestDown(item.id, index)"
+                                                :disabled="index === queue.length - 1"
+                                                class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                                                title="Pindah ke bawah">
+                                            <i class="fas fa-arrow-down"></i>
+                                        </button>
+                                    </div>
+                                </template>
+
                                 <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded">
                                     <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
                                 </div>
-                                <button @click="removeRequest(item.id)"
-                                        class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors">
-                                    <i class="fas fa-times"></i>
-                                </button>
+                          <template x-if="isAdmin">
+    <button @click="removeRequest(item.id)" ...>
+        <i class="fas fa-times"></i>
+    </button>
+</template>
                             </div>
                         </div>
                     </div>
@@ -300,6 +357,8 @@
                     <div>YouTube Music Bridge v2.1</div>
                     <div class="hidden md:block">•</div>
                     <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
+                    <div class="hidden md:block">•</div>
+                    <div><span x-text="isAdmin ? 'Admin Mode' : 'User Mode'" :class="isAdmin ? 'text-green-400' : ''"></span></div>
                 </div>
                 
                 <div>
@@ -307,6 +366,38 @@
                 </div>
             </div>
         </footer>
+
+        <!-- Admin Login Modal -->
+        <div x-show="showAdminLogin" 
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
+            <div class="bg-gray-800 rounded-2xl p-6 w-full max-w-md" @click.away="showAdminLogin = false">
+                <h2 class="text-2xl font-bold mb-4">Admin Login</h2>
+                <div class="space-y-4">
+                    <div>
+                        <input x-model="adminPassword" type="password" 
+                               placeholder="Masukkan password admin"
+                               @keydown.enter="adminLogin()"
+                               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors">
+                    </div>
+                    <div class="flex justify-end gap-4">
+                        <button @click="showAdminLogin = false" 
+                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                            Batal
+                        </button>
+                        <button @click="adminLogin()"
+                                class="px-4 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 rounded-lg transition-colors">
+                            Login
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Toast Notification -->
         <div x-show="toast.show" 
@@ -368,6 +459,13 @@
                 isRefreshing: false,
                 showSettings: false,
                 
+                // Admin State
+                isAdmin: false,
+                adminToken: null,
+                adminSessionExpires: null,
+                showAdminLogin: false,
+                adminPassword: '',
+                
                 // Toast
                 toast: {
                     show: false,
@@ -377,6 +475,16 @@
                 
                 // Initialize
                 async init() {
+                    // Cek admin session dari localStorage
+                    const savedToken = localStorage.getItem('adminToken');
+                    const savedExpires = localStorage.getItem('adminExpires');
+                    
+                    if (savedToken && savedExpires && Date.now() < parseInt(savedExpires)) {
+                        this.adminToken = savedToken;
+                        this.adminSessionExpires = parseInt(savedExpires);
+                        await this.checkAdminSession();
+                    }
+                    
                     await this.loadData();
                     
                     // Auto refresh data every 3 seconds
@@ -388,15 +496,28 @@
                     setInterval(() => {
                         this.updateLockProgress();
                     }, 1000);
+                    
+                    // Cek admin session setiap menit
+                    setInterval(() => {
+                        if (this.isAdmin) {
+                            this.checkAdminSession();
+                        }
+                    }, 60000);
                 },
                 
                 // Load all data
                 async loadData() {
                     try {
+                        // Tambahkan admin token jika ada
+                        const headers = {};
+                        if (this.isAdmin && this.adminToken) {
+                            headers['x-admin-token'] = this.adminToken;
+                        }
+                        
                         const [statusRes, queueRes, historyRes] = await Promise.all([
-                            fetch('/status').catch(() => null),
-                            fetch('/queue-info').catch(() => null),
-                            fetch('/history?limit=6').catch(() => null)
+                            fetch('/status', { headers }).catch(() => null),
+                            fetch('/queue-info', { headers }).catch(() => null),
+                            fetch('/history?limit=6', { headers }).catch(() => null)
                         ]);
                         
                         this.isConnected = statusRes && statusRes.ok;
@@ -417,6 +538,12 @@
                             this.queue = queueData.queue || [];
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
+                            
+                            // Tambahkan posisi untuk setiap item
+                            this.queue = this.queue.map((item, index) => ({
+                                ...item,
+                                position: index + 1
+                            }));
                         }
                         
                         if (historyRes && historyRes.ok) {
@@ -470,11 +597,17 @@
                 
                 // Remove request
                 async removeRequest(id) {
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa menghapus request', 'error');
+                        return;
+                    }
+                    
                     if (!confirm('Hapus request ini dari antrian?')) return;
                     
                     try {
                         const response = await fetch(`/remove-request/${id}`, {
-                            method: 'DELETE'
+                            method: 'DELETE',
+                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
                         });
                         
                         const result = await response.json();
@@ -482,6 +615,9 @@
                         if (response.ok) {
                             await this.loadData();
                             this.showToast(`Dihapus: ${result.removed}`, 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Akses ditolak. Hanya admin yang bisa menghapus request.', 'error');
+                            this.isAdmin = false;
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus request', 'error');
@@ -490,11 +626,17 @@
                 
                 // Skip current request
                 async skipCurrent() {
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa skip lagu', 'error');
+                        return;
+                    }
+                    
                     if (!confirm('Skip lagu saat ini?')) return;
                     
                     try {
                         const response = await fetch('/skip-current', {
-                            method: 'POST'
+                            method: 'POST',
+                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
                         });
                         
                         const result = await response.json();
@@ -502,6 +644,9 @@
                         if (response.ok) {
                             await this.loadData();
                             this.showToast('Request berhasil diskip', 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Akses ditolak. Hanya admin yang bisa skip.', 'error');
+                            this.isAdmin = false;
                         }
                     } catch (error) {
                         this.showToast('Gagal skip request', 'error');
@@ -510,16 +655,25 @@
                 
                 // Force next request
                 async forceNext() {
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa force next', 'error');
+                        return;
+                    }
+                    
                     if (!confirm('Force skip ke lagu berikutnya?')) return;
                     
                     try {
                         const response = await fetch('/force-next', {
-                            method: 'POST'
+                            method: 'POST',
+                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
                         });
                         
                         if (response.ok) {
                             await this.loadData();
                             this.showToast('Force skip berhasil', 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Akses ditolak. Hanya admin yang bisa force next.', 'error');
+                            this.isAdmin = false;
                         }
                     } catch (error) {
                         this.showToast('Gagal force skip', 'error');
@@ -528,6 +682,11 @@
                 
                 // Clear all requests
                 async clearQueue() {
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa menghapus antrian', 'error');
+                        return;
+                    }
+                    
                     if (this.queue.length === 0) {
                         this.showToast('Antrian sudah kosong', 'info');
                         return;
@@ -537,7 +696,8 @@
                     
                     try {
                         const response = await fetch('/clear-requests', {
-                            method: 'DELETE'
+                            method: 'DELETE',
+                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
                         });
                         
                         const result = await response.json();
@@ -545,6 +705,9 @@
                         if (response.ok) {
                             await this.loadData();
                             this.showToast(`Dihapus ${result.clearedCount} request`, 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Akses ditolak. Hanya admin yang bisa menghapus antrian.', 'error');
+                            this.isAdmin = false;
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus antrian', 'error');
@@ -573,6 +736,180 @@
                     } else {
                         this.lockProgress = 0;
                     }
+                },
+                
+                // Admin methods
+                async adminLogin() {
+                    if (!this.adminPassword.trim()) {
+                        this.showToast('Masukkan password admin', 'error');
+                        return;
+                    }
+                    
+                    this.isLoading = true;
+                    
+                    try {
+                        const response = await fetch('/admin/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ password: this.adminPassword })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok) {
+                            this.adminToken = result.token;
+                            this.adminSessionExpires = result.expiresAt;
+                            this.isAdmin = true;
+                            this.adminPassword = '';
+                            this.showAdminLogin = false;
+                            
+                            // Simpan token di localStorage
+                            localStorage.setItem('adminToken', this.adminToken);
+                            localStorage.setItem('adminExpires', this.adminSessionExpires);
+                            
+                            this.showToast('Login admin berhasil', 'success');
+                            
+                            // Load data dengan admin token
+                            await this.loadData();
+                        } else {
+                            this.showToast(result.error || 'Login gagal', 'error');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal menghubungi server', 'error');
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+                
+                async adminLogout() {
+                    if (!confirm('Logout dari mode admin?')) return;
+                    
+                    try {
+                        if (this.adminToken) {
+                            await fetch('/admin/logout', {
+                                method: 'POST',
+                                headers: { 'x-admin-token': this.adminToken }
+                            });
+                        }
+                        
+                        this.isAdmin = false;
+                        this.adminToken = null;
+                        this.adminSessionExpires = null;
+                        
+                        // Hapus dari localStorage
+                        localStorage.removeItem('adminToken');
+                        localStorage.removeItem('adminExpires');
+                        
+                        this.showToast('Logout admin berhasil', 'info');
+                        
+                        // Load data tanpa admin token
+                        await this.loadData();
+                    } catch (error) {
+                        console.error('Logout error:', error);
+                    }
+                },
+                
+                async checkAdminSession() {
+                    if (!this.adminToken) return;
+                    
+                    try {
+                        const response = await fetch('/admin/status', {
+                            headers: { 'x-admin-token': this.adminToken }
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (!result.isAdmin) {
+                            // Session expired
+                            this.isAdmin = false;
+                            this.adminToken = null;
+                            this.adminSessionExpires = null;
+                            
+                            localStorage.removeItem('adminToken');
+                            localStorage.removeItem('adminExpires');
+                            
+                            this.showToast('Session admin telah kadaluarsa', 'warning');
+                        } else {
+                            this.adminSessionExpires = result.expiresAt;
+                            localStorage.setItem('adminExpires', this.adminSessionExpires);
+                        }
+                    } catch (error) {
+                        console.error('Session check error:', error);
+                    }
+                },
+                
+                async moveRequestUp(requestId, currentIndex) {
+                    if (!this.isAdmin) return;
+                    
+                    const newPosition = currentIndex; // Pindah ke atas = posisi tetap
+                    
+                    try {
+                        const response = await fetch('/admin/move-request', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-admin-token': this.adminToken 
+                            },
+                            body: JSON.stringify({ 
+                                requestId, 
+                                newPosition 
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok) {
+                            await this.loadData();
+                            this.showToast(result.message, 'success');
+                        } else {
+                            this.showToast(result.error, 'error');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+                
+                async moveRequestDown(requestId, currentIndex) {
+                    if (!this.isAdmin) return;
+                    
+                    const newPosition = currentIndex + 2; // Pindah ke bawah = posisi +2
+                    
+                    try {
+                        const response = await fetch('/admin/move-request', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-admin-token': this.adminToken 
+                            },
+                            body: JSON.stringify({ 
+                                requestId, 
+                                newPosition 
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok) {
+                            await this.loadData();
+                            this.showToast(result.message, 'success');
+                        } else {
+                            this.showToast(result.error, 'error');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+                
+                formatAdminTimeLeft() {
+                    if (!this.adminSessionExpires) return '';
+                    
+                    const remaining = this.adminSessionExpires - Date.now();
+                    if (remaining <= 0) return 'Expired';
+                    
+                    const hours = Math.floor(remaining / (1000 * 60 * 60));
+                    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                    
+                    return `${hours}h ${minutes}m`;
                 },
                 
                 // Format helpers
