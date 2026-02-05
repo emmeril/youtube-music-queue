@@ -1,9 +1,9 @@
 // ================= KONFIGURASI =================
 const CONFIG = {
   SERVER_URL: 'https://music.monse.co.id',
-  UPDATE_INTERVAL: 500, // 2 detik
-  REQUEST_CHECK_INTERVAL: 500, // 3 detik
-  SEARCH_TIMEOUT: 15000, // 15 detik
+  UPDATE_INTERVAL: 500,
+  REQUEST_CHECK_INTERVAL: 500,
+  SEARCH_TIMEOUT: 15000,
   DEBUG: true
 };
 
@@ -45,7 +45,6 @@ class VideoMonitor {
   findVideoElement() {
     this.video = document.querySelector('video');
     if (!this.video) {
-      // Coba alternatif selector
       const videoSelectors = [
         'video',
         'ytd-player video',
@@ -102,7 +101,6 @@ class VideoMonitor {
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' || mutation.type === 'subtree') {
-          // Cek jika video element berubah
           if (!document.contains(this.video)) {
             this.log('Video element removed, reinitializing...');
             setTimeout(() => this.init(), 500);
@@ -118,11 +116,9 @@ class VideoMonitor {
   }
 
   handleSongEnd() {
-    // Kirim notifikasi ke server bahwa lagu selesai
     ServerAPI.notifySongEnded()
       .then(() => {
         this.log('✅ Server notified of song end');
-        // Langsung cek request berikutnya
         setTimeout(() => RequestProcessor.checkRequests(), 1000);
       })
       .catch(err => this.error('Failed to notify server:', err));
@@ -149,7 +145,6 @@ class SongManager {
       const songInfo = this.extractSongInfo();
       const duration = this.getDuration();
       
-      // Deteksi perubahan lagu
       const isNewSong = this.isNewSong(songInfo, duration);
       
       if (isNewSong || this.shouldForceUpdate()) {
@@ -161,7 +156,6 @@ class SongManager {
   }
 
   static extractSongInfo() {
-    // Cari elemen title dengan berbagai selector
     const titleSelectors = [
       'ytmusic-player-bar .title',
       '.title.ytmusic-player-bar',
@@ -172,7 +166,6 @@ class SongManager {
       'ytmusic-player-bar .yt-formatted-string[has-link-only_]'
     ];
 
-    // Cari elemen artist dengan berbagai selector
     const artistSelectors = [
       'ytmusic-player-bar .byline',
       '.byline.ytmusic-player-bar',
@@ -184,7 +177,6 @@ class SongManager {
     let title = 'Tidak diketahui';
     let artist = 'Tidak diketahui';
 
-    // Extract title
     for (const selector of titleSelectors) {
       const element = document.querySelector(selector);
       if (element && element.textContent && element.textContent.trim()) {
@@ -193,13 +185,10 @@ class SongManager {
       }
     }
 
-    // Extract artist
     for (const selector of artistSelectors) {
       const element = document.querySelector(selector);
       if (element && element.textContent && element.textContent.trim()) {
         let artistText = element.textContent.trim();
-        
-        // Bersihkan text artist
         artistText = this.cleanArtistText(artistText);
         
         if (artistText) {
@@ -215,7 +204,6 @@ class SongManager {
   static cleanArtistText(text) {
     if (!text) return text;
     
-    // Hapus separator dan text setelahnya
     const separators = ['•', '·', '|', '-', '–', '—'];
     
     for (const separator of separators) {
@@ -224,7 +212,6 @@ class SongManager {
       }
     }
     
-    // Hapus kata-kata umum yang tidak perlu
     const commonWords = ['Topic', 'VEVO', 'Official', 'Video', 'Audio'];
     commonWords.forEach(word => {
       const regex = new RegExp(`\\s*${word}\\s*`, 'gi');
@@ -235,13 +222,11 @@ class SongManager {
   }
 
   static getDuration() {
-    // Method 1: Dari video element
     const video = document.querySelector('video');
     if (video && video.duration && video.duration > 0) {
       return Math.round(video.duration * 1000);
     }
 
-    // Method 2: Dari progress bar
     const progressBar = document.querySelector('tp-yt-paper-progress, .ytp-progress-bar');
     if (progressBar) {
       const max = progressBar.getAttribute('aria-valuemax') || 
@@ -252,7 +237,6 @@ class SongManager {
       }
     }
 
-    // Method 3: Dari text duration
     const durationElements = document.querySelectorAll(
       '.ytp-time-duration, .time-info, [aria-label*="duration"], [class*="duration"]'
     );
@@ -265,16 +249,13 @@ class SongManager {
       }
     }
 
-    // Default: 3 menit
     return 180000;
   }
 
   static parseTimeText(text) {
-    // Format: "3:45" atau "1:23 / 3:45"
     const timeMatch = text.match(/(\d+):(\d+)/g);
     if (!timeMatch) return 0;
     
-    // Ambil bagian terakhir (total duration)
     const lastTime = timeMatch[timeMatch.length - 1];
     const parts = lastTime.split(':').map(Number);
     
@@ -290,7 +271,7 @@ class SongManager {
   static isNewSong(songInfo, duration) {
     const titleChanged = songInfo.title !== this.lastTitle;
     const artistChanged = songInfo.artist !== this.lastArtist;
-    const durationChanged = Math.abs(duration - this.lastDuration) > 10000; // 10 detik
+    const durationChanged = Math.abs(duration - this.lastDuration) > 10000;
     
     return titleChanged || (artistChanged && songInfo.artist !== 'Tidak diketahui') || durationChanged;
   }
@@ -298,7 +279,6 @@ class SongManager {
   static shouldForceUpdate() {
     this.updateCount++;
     
-    // Force update setiap 10 kali update atau 30 detik
     if (this.updateCount >= 10) {
       this.updateCount = 0;
       return true;
@@ -324,7 +304,6 @@ class SongManager {
       });
 
       if (response.ok) {
-        // Update state
         this.lastTitle = songInfo.title;
         this.lastArtist = songInfo.artist;
         this.lastDuration = duration;
@@ -332,12 +311,9 @@ class SongManager {
         
         if (isNewSong) {
           this.log(`🎵 New song detected: ${songInfo.title} - ${songInfo.artist}`);
-          
-          // Verifikasi kecocokan dengan request
           setTimeout(() => this.verifyRequestMatch(songInfo), 2000);
         }
         
-        // Update debug panel
         DebugPanel.update(songInfo, duration);
       }
     } catch (error) {
@@ -385,7 +361,6 @@ class SearchAutoplay {
       this.findAndPlay();
     }, 1000);
     
-    // Timeout setelah waktu maksimum
     setTimeout(() => {
       if (this.interval) {
         this.stop();
@@ -402,7 +377,6 @@ class SearchAutoplay {
   }
 
   findAndPlay() {
-    // Cek jika sudah ada video yang diputar
     const video = document.querySelector('video');
     if (video && (video.currentTime > 0 || !video.paused)) {
       this.log('Video already playing, stopping search');
@@ -411,17 +385,11 @@ class SearchAutoplay {
       return;
     }
 
-    // Urutan selector berdasarkan prioritas
     const selectors = [
-      // Tombol play di hasil pencarian
       'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer button',
       'ytmusic-responsive-list-item-renderer [aria-label*="Play"]',
-      
-      // Link ke video
       'ytmusic-responsive-list-item-renderer a.yt-simple-endpoint',
       'ytmusic-responsive-list-item-renderer #play-button',
-      
-      // Fallback: tombol apa saja dengan label play
       'button[aria-label*="play" i]',
       '[title*="play" i]',
       '.play-button',
@@ -436,15 +404,12 @@ class SearchAutoplay {
           
           this.log(`Found ${elements.length} elements with selector: ${selector}`);
           
-          // Scroll ke element
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           
-          // Tunggu sebentar lalu klik
           setTimeout(() => {
             element.click();
             this.log('Clicked play element');
             
-            // Verifikasi bahwa lagu mulai diputar
             this.verifyPlayback();
           }, 500);
           
@@ -456,7 +421,6 @@ class SearchAutoplay {
       }
     }
 
-    // Jika mencapai max attempts, coba metode alternatif
     if (this.attempts >= this.maxAttempts) {
       this.tryAlternativeMethods();
     }
@@ -471,7 +435,6 @@ class SearchAutoplay {
       this.goBackAfterDelay();
     } else {
       this.log('❌ Playback not detected, retrying...');
-      // Coba lagi
       this.attempts = 0;
       this.start();
     }
@@ -480,10 +443,9 @@ class SearchAutoplay {
   tryAlternativeMethods() {
     this.log('Trying alternative search methods...');
     
-    // Method 1: Klik link pertama yang mengarah ke watch
     const links = document.querySelectorAll('a[href*="/watch"]');
     for (const link of links) {
-      if (!link.href.includes('list=')) { // Hindari playlist
+      if (!link.href.includes('list=')) {
         link.click();
         this.log('Clicked watch link:', link.href);
         this.goBackAfterDelay();
@@ -491,11 +453,9 @@ class SearchAutoplay {
       }
     }
     
-    // Method 2: Gunakan keyboard shortcut (Space untuk play)
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
     this.log('Sent space key for playback');
     
-    // Tunggu dan cek
     setTimeout(() => {
       const video = document.querySelector('video');
       if (!video || video.paused) {
@@ -528,10 +488,9 @@ class SearchAutoplay {
 class RequestProcessor {
   static isProcessing = false;
   static lastRequestTime = 0;
-  static cooldown = 5000; // 5 detik cooldown
+  static cooldown = 5000;
 
   static async checkRequests() {
-    // Cooldown untuk menghindari spam
     if (this.isProcessing || Date.now() - this.lastRequestTime < this.cooldown) {
       return;
     }
@@ -541,13 +500,13 @@ class RequestProcessor {
     try {
       const response = await fetch(`${CONFIG.SERVER_URL}/get-request`);
       
-      if (response.status === 423) { // Locked
+      if (response.status === 423) {
         const data = await response.json();
         this.log(`Request locked: ${data.remainingFormatted} remaining`);
         return;
       }
       
-      if (response.status === 204) { // No content
+      if (response.status === 204) {
         return;
       }
       
@@ -566,17 +525,13 @@ class RequestProcessor {
   static async processRequest(request) {
     this.log(`Processing request: "${request.query}"`);
     
-    // Simpan request yang sedang diproses
     state.lastProcessedRequest = request;
     state.isProcessingRequest = true;
     
-    // Update debug panel
     DebugPanel.setStatus(`Processing: ${request.query}`);
     
-    // Redirect ke halaman pencarian
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(request.query)}`;
     
-    // Cek jika kita sudah di halaman yang sama
     if (window.location.href === searchUrl) {
       this.log('Already on search page, starting autoplay');
       new SearchAutoplay().start();
@@ -710,18 +665,15 @@ class DebugPanel {
   }
 
   static setupEventListeners() {
-    // Toggle visibility
     document.getElementById('debug-toggle').addEventListener('click', () => {
       this.isVisible = !this.isVisible;
       this.panel.style.display = this.isVisible ? 'block' : 'none';
     });
     
-    // Refresh page
     document.getElementById('debug-refresh').addEventListener('click', () => {
       location.reload();
     });
     
-    // Skip current song
     document.getElementById('debug-skip').addEventListener('click', async () => {
       try {
         await ServerAPI.skipCurrent();
@@ -732,7 +684,6 @@ class DebugPanel {
       }
     });
     
-    // Check requests
     document.getElementById('debug-check').addEventListener('click', () => {
       RequestProcessor.checkRequests();
       this.setStatus('Checking requests...');
@@ -761,7 +712,6 @@ class DebugPanel {
     statusElement.textContent = message;
     statusElement.style.color = isError ? '#ff4757' : '#2ed573';
     
-    // Reset setelah 3 detik
     setTimeout(() => {
       statusElement.textContent = 'Aktif';
       statusElement.style.color = '#2ed573';
@@ -776,7 +726,6 @@ class URLMonitor {
   static init() {
     this.lastURL = window.location.href;
     
-    // Monitor perubahan URL
     setInterval(() => {
       const currentURL = window.location.href;
       if (currentURL !== this.lastURL) {
@@ -785,7 +734,6 @@ class URLMonitor {
       }
     }, 1000);
     
-    // Event listener untuk popstate (back/forward)
     window.addEventListener('popstate', () => {
       setTimeout(() => {
         this.handleURLChange(this.lastURL, window.location.href);
@@ -797,13 +745,11 @@ class URLMonitor {
   static handleURLChange(oldURL, newURL) {
     console.log(`🌐 URL changed: ${oldURL} → ${newURL}`);
     
-    // Jika pindah ke halaman search
     if (newURL.includes('/search?q=')) {
       console.log('🔍 Search page detected, starting autoplay in 1.5s');
       setTimeout(() => new SearchAutoplay().start(), 1500);
     }
     
-    // Reset song detection jika pindah halaman
     if (!oldURL.includes('music.youtube.com') || !newURL.includes('music.youtube.com')) {
       SongManager.lastTitle = '';
       SongManager.lastArtist = '';
@@ -815,24 +761,16 @@ class URLMonitor {
 function initialize() {
   console.log('🚀 Initializing YouTube Music Bridge...');
   
-  // Inisialisasi komponen
   new VideoMonitor();
   URLMonitor.init();
   DebugPanel.create();
   
-  // Setup interval untuk update lagu
   setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
-  
-  // Setup interval untuk cek request
   setInterval(() => RequestProcessor.checkRequests(), CONFIG.REQUEST_CHECK_INTERVAL);
   
-  // Update pertama kali
   setTimeout(() => SongManager.update(), 1000);
-  
-  // Cek request pertama kali
   setTimeout(() => RequestProcessor.checkRequests(), 2000);
   
-  // Cek jika di halaman search
   if (window.location.href.includes('/search?q=')) {
     setTimeout(() => new SearchAutoplay().start(), 2000);
   }
@@ -842,7 +780,6 @@ function initialize() {
 }
 
 // ================= START APPLICATION =================
-// Tunggu DOM siap
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initialize);
 } else {

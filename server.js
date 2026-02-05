@@ -38,7 +38,10 @@ let state = {
     totalRequests: 0,
     totalSongsPlayed: 0,
     totalPlayTime: 0
-  }
+  },
+  songEndTimeout: null,
+  requestStartTime: 0,
+  originalLockDuration: 0
 };
 
 // ================= HELPER FUNCTIONS =================
@@ -149,6 +152,70 @@ function calculateConfidence(song) {
   return Math.min(confidence, 95);
 }
 
+function calculateLockDuration(songDuration) {
+  // Durasi lock = durasi lagu + buffer 10 detik
+  return (songDuration || 180000) + 10000;
+}
+
+function scheduleAutoUnlock(lockDuration) {
+  // Hapus timeout sebelumnya jika ada
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+    state.songEndTimeout = null;
+  }
+  
+  // Jadwalkan auto-unlock
+  if (lockDuration > 0) {
+    state.songEndTimeout = setTimeout(() => {
+      const now = Date.now();
+      if (now < state.requestLockUntil) {
+        console.log(`⏰ Auto-unlock triggered for song completion`);
+        state.requestLockUntil = 0;
+        state.currentSong.isPlaying = false;
+        
+        if (state.activeRequest) {
+          state.activeRequest.status = 'auto_completed';
+          state.activeRequest.autoCompletedAt = now;
+          state.activeRequest = null;
+          saveRequests();
+        }
+      }
+    }, lockDuration);
+  }
+}
+
+function calculateWaitTime(position) {
+  // Estimasi waktu tunggu dalam menit
+  const avgSongDuration = 3; // 3 menit rata-rata
+  return position * avgSongDuration;
+}
+
+function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
+  let confidence = 0;
+  
+  // Exact match di title
+  if (songTitle === requestQuery) confidence = 100;
+  // Contains match di title
+  else if (songTitle.includes(requestQuery) || requestQuery.includes(songTitle)) confidence = 85;
+  // Contains match di artist
+  else if (songArtist.includes(requestQuery) || requestQuery.includes(songArtist)) confidence = 75;
+  // Partial match
+  else {
+    const requestWords = requestQuery.split(' ');
+    const titleWords = songTitle.split(' ');
+    const artistWords = songArtist.split(' ');
+    
+    const matchingWords = requestWords.filter(word => 
+      titleWords.some(tw => tw.includes(word)) || 
+      artistWords.some(aw => aw.includes(word))
+    );
+    
+    confidence = Math.round((matchingWords.length / requestWords.length) * 100);
+  }
+  
+  return confidence;
+}
+
 // ================= API ENDPOINTS =================
 
 // 1. UPDATE SONG (dipanggil oleh extension)
@@ -176,6 +243,24 @@ app.post('/update', (req, res) => {
     
     console.log(`📊 Song updated: ${title} - ${artist} (${formatDuration(validDuration)}, ${confidence}%)`);
     
+    // JIKA ADA REQUEST AKTIF, UPDATE LOCK DURATION
+    if (state.activeRequest && state.requestLockUntil > 0) {
+      // Hitung sisa waktu dari lock sebelumnya
+      const remainingLock = state.requestLockUntil - now;
+      
+      // Jika lagu baru atau durasi berubah, reset lock berdasarkan durasi lagu baru
+      if (isNewSong || Math.abs(validDuration - state.currentSong.duration) > 5000) {
+        const newLockDuration = calculateLockDuration(validDuration);
+        state.requestLockUntil = now + newLockDuration;
+        state.originalLockDuration = newLockDuration;
+        
+        // Jadwalkan ulang auto-unlock
+        scheduleAutoUnlock(newLockDuration);
+        
+        console.log(`🔒 Lock updated to ${Math.round(newLockDuration/1000)}s for new song`);
+      }
+    }
+    
     // Jika ini lagu baru dan ada request aktif, tambahkan ke history
     if (isNewSong && state.activeRequest) {
       addToHistory(state.currentSong, state.activeRequest);
@@ -185,7 +270,8 @@ app.post('/update', (req, res) => {
       success: true,
       message: 'Song updated',
       song: state.currentSong,
-      timestamp: now
+      timestamp: now,
+      lockRemaining: state.requestLockUntil > 0 ? Math.max(0, state.requestLockUntil - now) : 0
     });
     
   } catch (error) {
@@ -196,13 +282,24 @@ app.post('/update', (req, res) => {
 
 // 2. GET CURRENT STATUS
 app.get('/status', (req, res) => {
+  const now = Date.now();
+  const lockRemaining = Math.max(0, state.requestLockUntil - now);
+  
   res.json({
     song: state.currentSong,
-    isLocked: Date.now() < state.requestLockUntil,
-    lockRemaining: Math.max(0, state.requestLockUntil - Date.now()),
+    isLocked: now < state.requestLockUntil,
+    lockRemaining: lockRemaining,
+    lockRemainingFormatted: formatWaitTime(Math.round(lockRemaining / 1000)),
     activeRequest: state.activeRequest,
     queueLength: state.requestQueue.length,
-    stats: state.stats
+    stats: state.stats,
+    // Tambahan info tentang lock
+    lockInfo: {
+      basedOnSongDuration: state.currentSong.duration,
+      originalLock: state.originalLockDuration,
+      currentProgress: state.requestStartTime > 0 ? 
+        Math.min(100, ((now - state.requestStartTime) / state.originalLockDuration) * 100) : 0
+    }
   });
 });
 
@@ -240,13 +337,17 @@ app.get('/get-request', (req, res) => {
   state.activeRequest = {
     ...nextRequest,
     status: 'playing',
-    startedAt: now,
-    estimatedDuration: state.currentSong.duration || 180000
+    startedAt: now
   };
   
-  // Set lock time berdasarkan durasi lagu saat ini + buffer
-  const lockDuration = (state.currentSong.duration || 180000) + 10000;
+  // Set lock time berdasarkan DURASI LAGU YANG SEDANG DIPUTAR
+  const lockDuration = calculateLockDuration(state.currentSong.duration);
   state.requestLockUntil = now + lockDuration;
+  state.requestStartTime = now;
+  state.originalLockDuration = lockDuration;
+  
+  // Jadwalkan auto-unlock berdasarkan durasi lagu
+  scheduleAutoUnlock(lockDuration);
   
   // Update stats
   state.stats.totalRequests++;
@@ -254,7 +355,7 @@ app.get('/get-request', (req, res) => {
   // Simpan perubahan
   saveRequests();
   
-  console.log(`🎵 Next request: "${nextRequest.query}" (Lock: ${Math.round(lockDuration/1000)}s)`);
+  console.log(`🎵 Next request: "${nextRequest.query}" (Lock: ${Math.round(lockDuration/1000)}s, Song: ${formatDuration(state.currentSong.duration)})`);
   
   res.json({
     query: nextRequest.query,
@@ -262,7 +363,8 @@ app.get('/get-request', (req, res) => {
     time: nextRequest.time,
     estimatedDuration: lockDuration,
     queueRemaining: state.requestQueue.length,
-    lockUntil: state.requestLockUntil
+    lockUntil: state.requestLockUntil,
+    songDuration: state.currentSong.duration
   });
 });
 
@@ -342,12 +444,13 @@ app.post('/song-ended', (req, res) => {
   
   console.log(`⏭️ Song ended notification received`);
   
-  // Reset lock lebih awal
-  if (now < state.requestLockUntil) {
-    const remaining = Math.ceil((state.requestLockUntil - now) / 1000);
-    console.log(`🔓 Early unlock: ${remaining}s remaining`);
+  // Hapus timeout auto-unlock
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+    state.songEndTimeout = null;
   }
   
+  // Reset lock
   state.requestLockUntil = 0;
   state.currentSong.isPlaying = false;
   
@@ -407,6 +510,12 @@ app.post('/verify-match', (req, res) => {
 app.post('/skip-current', (req, res) => {
   console.log('⏭️ Skip current request requested');
   
+  // Hapus timeout auto-unlock
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+    state.songEndTimeout = null;
+  }
+  
   // Reset lock
   state.requestLockUntil = 0;
   
@@ -414,9 +523,6 @@ app.post('/skip-current', (req, res) => {
   if (state.activeRequest) {
     state.activeRequest.status = 'skipped';
     state.activeRequest.skippedAt = Date.now();
-    
-    // Optional: pindahkan ke akhir queue
-    // state.requestQueue.push(state.activeRequest);
     
     state.activeRequest = null;
   }
@@ -434,6 +540,12 @@ app.post('/skip-current', (req, res) => {
 // 9. FORCE NEXT (emergency skip)
 app.post('/force-next', (req, res) => {
   console.log('⚡ Force next requested');
+  
+  // Hapus timeout auto-unlock
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+    state.songEndTimeout = null;
+  }
   
   // Reset semua state terkait playback
   state.requestLockUntil = 0;
@@ -467,6 +579,12 @@ app.delete('/remove-request/:id', (req, res) => {
   
   // Jika yang dihapus adalah active request, reset lock
   if (state.activeRequest && state.activeRequest.id === id) {
+    // Hapus timeout auto-unlock
+    if (state.songEndTimeout) {
+      clearTimeout(state.songEndTimeout);
+      state.songEndTimeout = null;
+    }
+    
     state.requestLockUntil = 0;
     state.activeRequest = null;
     console.log(`⚠️ Active request removed: "${removed.query}"`);
@@ -491,6 +609,12 @@ app.delete('/clear-requests', (req, res) => {
   state.requestQueue = [];
   state.activeRequest = null;
   state.requestLockUntil = 0;
+  
+  // Hapus timeout auto-unlock
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+    state.songEndTimeout = null;
+  }
   
   saveRequests();
   
@@ -582,39 +706,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ================= HELPER FUNCTIONS =================
-function calculateWaitTime(position) {
-  // Estimasi waktu tunggu dalam menit
-  const avgSongDuration = 3; // 3 menit rata-rata
-  return position * avgSongDuration;
-}
-
-function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
-  let confidence = 0;
-  
-  // Exact match di title
-  if (songTitle === requestQuery) confidence = 100;
-  // Contains match di title
-  else if (songTitle.includes(requestQuery) || requestQuery.includes(songTitle)) confidence = 85;
-  // Contains match di artist
-  else if (songArtist.includes(requestQuery) || requestQuery.includes(songArtist)) confidence = 75;
-  // Partial match
-  else {
-    const requestWords = requestQuery.split(' ');
-    const titleWords = songTitle.split(' ');
-    const artistWords = songArtist.split(' ');
-    
-    const matchingWords = requestWords.filter(word => 
-      titleWords.some(tw => tw.includes(word)) || 
-      artistWords.some(aw => aw.includes(word))
-    );
-    
-    confidence = Math.round((matchingWords.length / requestWords.length) * 100);
-  }
-  
-  return confidence;
-}
-
 // ================= AUTO-UNLOCK TIMER =================
 setInterval(() => {
   const now = Date.now();
@@ -629,6 +720,12 @@ setInterval(() => {
       state.activeRequest.autoCompletedAt = now;
       state.activeRequest = null;
       saveRequests();
+    }
+    
+    // Hapus timeout
+    if (state.songEndTimeout) {
+      clearTimeout(state.songEndTimeout);
+      state.songEndTimeout = null;
     }
   }
   
@@ -666,6 +763,11 @@ app.listen(PORT, () => {
 // Handle shutdown gracefully
 process.on('SIGINT', () => {
   console.log('\n🛑 Shutting down server...');
+  
+  // Hapus timeout sebelum shutdown
+  if (state.songEndTimeout) {
+    clearTimeout(state.songEndTimeout);
+  }
   
   // Save data before exit
   saveRequests();

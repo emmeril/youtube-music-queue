@@ -46,7 +46,7 @@
                     <div class="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg">
                         <div class="w-2 h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
                         <span class="text-sm" :class="isConnected ? 'text-green-400' : 'text-red-400'">
-                           
+                            <span x-text="isConnected ? 'Connected' : 'Disconnected'"></span>
                         </span>
                     </div>
                     <button @click="refreshAll()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
@@ -98,18 +98,6 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Quick Actions -->
-                        <!-- <div class="flex gap-2">
-                            <button @click="skipCurrent()" 
-                                    class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-medium transition-colors">
-                                <i class="fas fa-forward mr-2"></i>Skip
-                            </button>
-                            <button @click="forceNext()" 
-                                    class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors">
-                                <i class="fas fa-forward-fast mr-2"></i>Force
-                            </button>
-                        </div> -->
                     </div>
                     
                     <!-- Progress Bar -->
@@ -121,6 +109,10 @@
                         <div class="w-full bg-gray-800 rounded-full h-2">
                             <div class="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full transition-all duration-1000"
                                  :style="'width: ' + lockProgress + '%'"></div>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1 text-center">
+                            Lock duration: <span x-text="formatDuration(lockInfo.originalLock)"></span> 
+                            (based on current song)
                         </div>
                     </div>
                 </div>
@@ -169,9 +161,8 @@
                 </div>
             </div>
             
-            
             <!-- Stats Panel -->
-            <!-- <div>
+            <div>
                 <div class="glass-effect rounded-2xl p-6 h-full">
                     <h2 class="text-xl font-bold text-white mb-6">
                         <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik
@@ -203,77 +194,70 @@
                         </div>
                     </div>
                 </div>
-            </div> -->
+            </div>
         </div>
 
         <!-- Request Queue -->
         <div class="mt-8 glass-effect rounded-2xl p-6">
-            <!-- Add Request Form -->
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-white">
+                    <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
+                    <span class="text-gray-400 ml-2" x-text="'(' + queue.length + ')'"></span>
+                </h2>
+                
+                <div class="flex gap-2">
+                    <button @click="clearQueue()" 
+                            x-show="queue.length > 0"
+                            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                        <i class="fas fa-trash mr-2"></i>Hapus Semua
+                    </button>
+                </div>
+            </div>
             
-            <!-- Queue List -->
-            <div class="lg:col-span-2">
-                <div class="glass-effect rounded-2xl p-6 h-full">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-xl font-bold text-white">
-                            <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
-                            <span class="text-gray-400 ml-2" x-text="'(' + queue.length + ')'"></span>
-                        </h2>
-                        
-                        <div class="flex gap-2">
-                            <button @click="clearQueue()" 
-                                    x-show="queue.length > 0"
-                                    class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                                <i class="fas fa-trash mr-2"></i>Hapus Semua
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Empty State -->
-                    <div x-show="queue.length === 0" 
-                         class="text-center py-12 border-2 border-dashed border-gray-800 rounded-xl">
-                        <i class="fas fa-music text-4xl text-gray-700 mb-4"></i>
-                        <p class="text-gray-500 text-lg">Antrian kosong</p>
-                        <p class="text-gray-600 text-sm mt-2">Tambahkan request lagu di form sebelah</p>
-                    </div>
-                    
-                    <!-- Queue Items -->
-                    <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2" x-show="queue.length > 0">
-                        <template x-for="(item, index) in queue" :key="item.id">
-                            <div class="bg-gray-800/50 hover:bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center gap-4">
-                                        <!-- Position Badge -->
-                                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-                                            <span class="font-bold" x-text="index + 1"></span>
-                                        </div>
-                                        
-                                        <!-- Request Info -->
-                                        <div class="flex-1">
-                                            <div class="font-bold text-lg truncate max-w-md" x-text="item.query"></div>
-                                            <div class="text-sm text-gray-400 mt-1">
-                                                Ditambahkan: <span x-text="formatTime(item.time)"></span>
-                                            </div>
-                                        </div>
+            <!-- Empty State -->
+            <div x-show="queue.length === 0" 
+                 class="text-center py-12 border-2 border-dashed border-gray-800 rounded-xl">
+                <i class="fas fa-music text-4xl text-gray-700 mb-4"></i>
+                <p class="text-gray-500 text-lg">Antrian kosong</p>
+                <p class="text-gray-600 text-sm mt-2">Tambahkan request lagu di form sebelah</p>
+            </div>
+            
+            <!-- Queue Items -->
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2" x-show="queue.length > 0">
+                <template x-for="(item, index) in queue" :key="item.id">
+                    <div class="bg-gray-800/50 hover:bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <!-- Position Badge -->
+                                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+                                    <span class="font-bold" x-text="index + 1"></span>
+                                </div>
+                                
+                                <!-- Request Info -->
+                                <div class="flex-1">
+                                    <div class="font-bold text-lg truncate max-w-md" x-text="item.query"></div>
+                                    <div class="text-sm text-gray-400 mt-1">
+                                        Ditambahkan: <span x-text="formatTime(item.time)"></span>
                                     </div>
-                                    
-                                    <!-- Actions -->
-                                    <!-- <div class="flex items-center gap-2">
-                                        <div class="text-sm text-gray-400" x-text="'~' + item.estimatedWait + 'm'"></div>
-                                        <button @click="removeRequest(item.id)"
-                                                class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors">
-                                            <i class="fas fa-times"></i>
-                                        </button>
-                                    </div> -->
                                 </div>
                             </div>
-                        </template>
+                            
+                            <!-- Actions -->
+                            <div class="flex items-center gap-2">
+                                <div class="text-sm text-gray-400" x-text="'~' + calculateWaitTime(index) + 'm'"></div>
+                                <button @click="removeRequest(item.id)"
+                                        class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </template>
             </div>
         </div>
 
         <!-- Recent History -->
-        <!-- <div class="mt-8 glass-effect rounded-2xl p-6">
+        <div class="mt-8 glass-effect rounded-2xl p-6">
             <h2 class="text-xl font-bold text-white mb-6">
                 <i class="fas fa-history mr-2 text-purple-400"></i>Riwayat Terbaru
             </h2>
@@ -294,7 +278,7 @@
                     <p class="text-gray-500">Belum ada riwayat pemutaran</p>
                 </div>
             </div>
-        </div> -->
+        </div>
 
         <!-- Footer -->
         <footer class="mt-12 pt-8 border-t border-gray-800 text-center text-gray-500 text-sm">
@@ -303,7 +287,7 @@
                     <div class="flex items-center gap-2">
                         <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                         <span>Server: <span :class="isConnected ? 'text-green-400' : 'text-red-400'">
-                           
+                            <span x-text="isConnected ? 'Online' : 'Offline'"></span>
                         </span></span>
                     </div>
                     <div class="hidden md:block">•</div>
@@ -311,9 +295,6 @@
                 </div>
                 
                 <div class="flex gap-4">
-                    <a href="https://github.com" target="_blank" class="text-gray-400 hover:text-white transition-colors">
-                        <i class="fab fa-github"></i>
-                    </a>
                     <button @click="showSettings = !showSettings" class="text-gray-400 hover:text-white transition-colors">
                         <i class="fas fa-cog"></i>
                     </button>
@@ -370,6 +351,10 @@
                 },
                 lockRemaining: 0,
                 lockProgress: 0,
+                lockInfo: {
+                    originalLock: 0,
+                    basedOnSongDuration: 0
+                },
                 newRequest: '',
                 isConnected: false,
                 isLoading: false,
@@ -387,12 +372,10 @@
                 async init() {
                     await this.loadData();
                     
-                    // Auto-refresh every 3 seconds
                     setInterval(async () => {
                         await this.loadData();
                     }, 3000);
                     
-                    // Auto-update lock progress
                     setInterval(() => {
                         this.updateLockProgress();
                     }, 1000);
@@ -407,7 +390,6 @@
                             fetch('/history?limit=6').catch(() => null)
                         ]);
                         
-                        // Check connection
                         this.isConnected = statusRes && statusRes.ok;
                         
                         if (statusRes && statusRes.ok) {
@@ -415,6 +397,7 @@
                             this.currentSong = statusData.song;
                             this.activeRequest = statusData.activeRequest;
                             this.lockRemaining = Math.round(statusData.lockRemaining / 1000);
+                            this.lockInfo = statusData.lockInfo || {};
                             this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
                         }
@@ -563,10 +546,9 @@
                 
                 // Update lock progress
                 updateLockProgress() {
-                    if (this.lockRemaining > 0 && this.activeRequest) {
-                        const estimatedDuration = this.activeRequest.estimatedDuration || 180000;
-                        const elapsed = (estimatedDuration / 1000) - this.lockRemaining;
-                        this.lockProgress = Math.min(100, (elapsed / (estimatedDuration / 1000)) * 100);
+                    if (this.lockRemaining > 0 && this.lockInfo.originalLock > 0) {
+                        const elapsed = (this.lockInfo.originalLock / 1000) - this.lockRemaining;
+                        this.lockProgress = Math.min(100, (elapsed / (this.lockInfo.originalLock / 1000)) * 100);
                         
                         if (this.lockRemaining > 0) {
                             this.lockRemaining--;
@@ -591,22 +573,18 @@
                     const now = new Date();
                     const diff = now - date;
                     
-                    // Jika kurang dari 1 menit yang lalu
                     if (diff < 60000) return 'Baru saja';
                     
-                    // Jika hari ini
                     if (date.toDateString() === now.toDateString()) {
                         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     }
                     
-                    // Jika kemarin
                     const yesterday = new Date(now);
                     yesterday.setDate(yesterday.getDate() - 1);
                     if (date.toDateString() === yesterday.toDateString()) {
                         return 'Kemarin ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     }
                     
-                    // Lebih dari 1 hari
                     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 },
                 
@@ -620,6 +598,17 @@
                     const hours = Math.floor(minutes / 60);
                     const remainingMinutes = minutes % 60;
                     return `${hours} jam ${remainingMinutes} menit`;
+                },
+                
+                calculateWaitTime(position) {
+                    if (position <= 0) return 0;
+                    
+                    const currentRemaining = this.lockRemaining > 0 ? 
+                        this.lockRemaining / 60 : 0;
+                    
+                    const avgSongDuration = (this.currentSong.duration || 180000) / 60000;
+                    
+                    return Math.round(currentRemaining + (position * avgSongDuration));
                 },
                 
                 // Toast notification
@@ -637,9 +626,7 @@
             }
         }
         
-        // Initialize when DOM is ready
         document.addEventListener('DOMContentLoaded', function() {
-            // Check server connection on load
             fetch('/health')
                 .then(response => {
                     if (response.ok) {
