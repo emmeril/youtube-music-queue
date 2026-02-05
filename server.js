@@ -6,6 +6,9 @@ const fs = require('fs');
 const app = express();
 const PORT = 4786;
 
+// Konstanta batas antrian
+const QUEUE_LIMIT = 100;
+
 // File untuk persistensi data
 const REQUESTS_FILE = path.join(__dirname, 'data', 'requests.json');
 const HISTORY_FILE = path.join(__dirname, 'data', 'history.json');
@@ -51,9 +54,16 @@ function loadData() {
     if (fs.existsSync(REQUESTS_FILE)) {
       const requestsData = JSON.parse(fs.readFileSync(REQUESTS_FILE, 'utf8'));
       state.requestQueue = requestsData.queue || [];
+      
+      // Batasi hanya 100 item terakhir
+      if (state.requestQueue.length > QUEUE_LIMIT) {
+        console.log(`⚠️ Queue truncated from ${state.requestQueue.length} to ${QUEUE_LIMIT} items`);
+        state.requestQueue = state.requestQueue.slice(-QUEUE_LIMIT);
+      }
+      
       state.activeRequest = requestsData.activeRequest || null;
       state.requestLockUntil = requestsData.lockUntil || 0;
-      console.log(`📂 Loaded ${state.requestQueue.length} requests from file`);
+      console.log(`📂 Loaded ${state.requestQueue.length} requests from file (max ${QUEUE_LIMIT})`);
     }
     
     // Load history
@@ -77,7 +87,8 @@ function saveRequests() {
       queue: state.requestQueue,
       activeRequest: state.activeRequest,
       lockUntil: state.requestLockUntil,
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      queueLimit: QUEUE_LIMIT
     };
     
     fs.writeFileSync(REQUESTS_FILE, JSON.stringify(data, null, 2));
@@ -292,6 +303,8 @@ app.get('/status', (req, res) => {
     lockRemainingFormatted: formatWaitTime(Math.round(lockRemaining / 1000)),
     activeRequest: state.activeRequest,
     queueLength: state.requestQueue.length,
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length,
     stats: state.stats,
     // Tambahan info tentang lock
     lockInfo: {
@@ -377,6 +390,15 @@ app.post('/request-song', (req, res) => {
       return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
+    // CEK BATAS ANRIAN (100 LAGU)
+    if (state.requestQueue.length >= QUEUE_LIMIT) {
+      return res.status(429).json({ 
+        error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu). Tunggu hingga beberapa lagu selesai diputar.`,
+        queueLimit: QUEUE_LIMIT,
+        currentQueue: state.requestQueue.length
+      });
+    }
+    
     // Cek duplikat di queue
     const isDuplicate = state.requestQueue.some(req => 
       req.query.toLowerCase() === query.toLowerCase()
@@ -399,7 +421,7 @@ app.post('/request-song', (req, res) => {
     state.requestQueue.push(newRequest);
     saveRequests();
     
-    console.log(`📝 Request added: "${query}" (Total: ${state.requestQueue.length})`);
+    console.log(`📝 Request added: "${query}" (Total: ${state.requestQueue.length}/${QUEUE_LIMIT})`);
     
     // Jika tidak ada request aktif, set ini sebagai berikutnya
     if (!state.activeRequest && state.requestLockUntil === 0) {
@@ -411,7 +433,9 @@ app.post('/request-song', (req, res) => {
       message: 'Request berhasil ditambahkan',
       request: newRequest,
       queuePosition: state.requestQueue.length,
-      estimatedWait: calculateWaitTime(state.requestQueue.length)
+      estimatedWait: calculateWaitTime(state.requestQueue.length),
+      queueLimit: QUEUE_LIMIT,
+      remainingSlots: QUEUE_LIMIT - state.requestQueue.length
     });
     
   } catch (error) {
@@ -434,7 +458,10 @@ app.get('/requests', (req, res) => {
     queue: requestsWithWait,
     total: state.requestQueue.length,
     isLocked: Date.now() < state.requestLockUntil,
-    lockRemaining: Math.max(0, state.requestLockUntil - Date.now())
+    lockRemaining: Math.max(0, state.requestLockUntil - Date.now()),
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length,
+    queueFull: state.requestQueue.length >= QUEUE_LIMIT
   });
 });
 
@@ -598,7 +625,9 @@ app.delete('/remove-request/:id', (req, res) => {
     success: true,
     message: 'Request berhasil dihapus',
     removed: removed.query,
-    newQueueLength: state.requestQueue.length
+    newQueueLength: state.requestQueue.length,
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length
   });
 });
 
@@ -623,7 +652,9 @@ app.delete('/clear-requests', (req, res) => {
   res.json({
     success: true,
     message: 'Semua request telah dihapus',
-    clearedCount: previousCount
+    clearedCount: previousCount,
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT
   });
 });
 
@@ -656,7 +687,10 @@ app.get('/queue-info', (req, res) => {
       position: index + 1
     })),
     queueLength: state.requestQueue.length,
-    totalQueueTime: Math.round(totalQueueMinutes * 10) / 10
+    totalQueueTime: Math.round(totalQueueMinutes * 10) / 10,
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length,
+    queueFull: state.requestQueue.length >= QUEUE_LIMIT
   };
   
   res.json(queueInfo);
@@ -689,6 +723,8 @@ app.get('/stats', (req, res) => {
     currentSong: state.currentSong,
     activeRequest: state.activeRequest,
     queueLength: state.requestQueue.length,
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length,
     historyCount: state.history.length,
     stats: state.stats,
     isLocked: now < state.requestLockUntil,
@@ -701,8 +737,9 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: Date.now(),
-    version: '2.0.0',
-    uptime: process.uptime()
+    version: '2.1.0',
+    uptime: process.uptime(),
+    queueLimit: QUEUE_LIMIT
   });
 });
 
@@ -749,8 +786,9 @@ app.listen(PORT, () => {
   console.log("=".repeat(50));
   console.log("✅ YouTube Music Bridge Server");
   console.log(`📍 Running at: http://localhost:${PORT}`);
-  console.log(`📊 Current queue: ${state.requestQueue.length} requests`);
+  console.log(`📊 Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
   console.log(`🎵 Current song: ${state.currentSong.title}`);
+  console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
   console.log("=".repeat(50));
   
   // Log lock status jika ada

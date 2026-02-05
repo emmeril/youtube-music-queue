@@ -28,6 +28,18 @@
             from { transform: translateY(10px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
+            transition: width 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -40,7 +52,7 @@
                     <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
                         <i class="fas fa-music mr-3"></i>YouTube Music Monse
                     </h1>
-                    <p class="text-gray-400 mt-2">Sistem Request Music</p>
+                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu)</p>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg">
@@ -132,78 +144,51 @@
                                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors">
                         </div>
                         
-                        <button @click="addRequest()"
-                                :disabled="!newRequest.trim()"
-                                class="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                            <i class="fas fa-plus mr-2"></i>Tambah ke Antrian
-                        </button>
-                        
-                        <!-- <div class="text-sm text-gray-400 mt-4">
-                            <i class="fas fa-info-circle mr-2"></i>
-                            Lagu akan diputar otomatis oleh extension YouTube Music
-                        </div> -->
-                    </div>
-                    
-                    <!-- Active Request -->
-                    <!-- <div class="mt-8 pt-6 border-t border-gray-800" x-show="activeRequest">
-                        <h3 class="font-bold text-white mb-4">Request Aktif</h3>
-                        <div class="bg-gray-800/50 p-4 rounded-lg">
-                            <div class="font-medium truncate" x-text="activeRequest.query"></div>
-                            <div class="text-sm text-gray-400 mt-2">
-                                Dimulai: <span x-text="formatTime(activeRequest.startedAt)"></span>
+                        <!-- Queue Status -->
+                        <div class="bg-gray-800/50 p-3 rounded-lg">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm text-gray-400">Antrian:</span>
+                                <span class="font-medium" x-text="queue.length + '/' + queueLimit"></span>
                             </div>
-                            <div class="text-sm text-green-400 mt-2" x-show="lockRemaining > 0">
-                                <i class="fas fa-lock mr-1"></i>
-                                <span x-text="'Terkunci: ' + formatWaitTime(lockRemaining)"></span>
+                            <div class="progress-bar">
+                                <div class="progress-fill" :style="'width: ' + (queue.length / queueLimit * 100) + '%'"></div>
+                            </div>
+                            <div class="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>Tersisa: <span x-text="queueLimit - queue.length"></span> slot</span>
+                                <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : ''" class="text-red-400"></span>
                             </div>
                         </div>
-                    </div> -->
+                        
+                        <button @click="addRequest()"
+                                :disabled="!newRequest.trim() || queue.length >= queueLimit"
+                                class="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fas fa-plus mr-2"></i>
+                            <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : 'Tambah ke Antrian'"></span>
+                        </button>
+                    </div>
                 </div>
             </div>
-            
-            <!-- Stats Panel -->
-            <!-- <div>
-                <div class="glass-effect rounded-2xl p-6 h-full">
-                    <h2 class="text-xl font-bold text-white mb-6">
-                        <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik
-                    </h2>
-                    
-                    <div class="space-y-4">
-                        <div class="flex items-center justify-between p-4 bg-gray-800/50 rounded-xl">
-                            <div>
-                                <div class="text-2xl font-bold" x-text="stats.queueLength || 0"></div>
-                                <div class="text-sm text-gray-400">Dalam Antrian</div>
-                            </div>
-                            <i class="fas fa-list-ol text-2xl text-blue-400"></i>
-                        </div>
-                        
-                        <div class="flex items-center justify-between p-4 bg-gray-800/50 rounded-xl">
-                            <div>
-                                <div class="text-2xl font-bold" x-text="stats.totalSongs || 0"></div>
-                                <div class="text-sm text-gray-400">Total Diputar</div>
-                            </div>
-                            <i class="fas fa-play-circle text-2xl text-green-400"></i>
-                        </div>
-                        
-                        <div class="flex items-center justify-between p-4 bg-gray-800/50 rounded-xl">
-                            <div>
-                                <div class="text-2xl font-bold" x-text="stats.totalTime || '0'"></div>
-                                <div class="text-sm text-gray-400">Total Waktu</div>
-                            </div>
-                            <i class="fas fa-hourglass-half text-2xl text-yellow-400"></i>
-                        </div>
-                    </div>
-                </div>
-            </div> -->
         </div>
 
         <!-- Request Queue -->
         <div class="mt-8 glass-effect rounded-2xl p-6">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-white">
-                    <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
-                    <span class="text-gray-400 ml-2" x-text="'(' + queue.length + ')'"></span>
-                </h2>
+                <div class="flex items-center gap-4">
+                    <h2 class="text-xl font-bold text-white">
+                        <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
+                        <span class="text-gray-400 ml-2" x-text="'(' + queue.length + '/' + queueLimit + ')'"></span>
+                    </h2>
+                    
+                    <!-- Queue Status Badge -->
+                    <div class="text-sm px-3 py-1 rounded-full" 
+                         :class="queue.length >= queueLimit ? 'bg-red-900/30 text-red-400' : 
+                                 queue.length >= queueLimit * 0.8 ? 'bg-yellow-900/30 text-yellow-400' : 
+                                 'bg-green-900/30 text-green-400'">
+                        <span x-text="queue.length >= queueLimit ? 'Penuh' : 
+                                     queue.length >= queueLimit * 0.8 ? 'Hampir Penuh' : 
+                                     'Normal'"></span>
+                    </div>
+                </div>
                 
                 <div class="flex gap-2">
                     <button @click="clearQueue()" 
@@ -211,6 +196,18 @@
                             class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
                         <i class="fas fa-trash mr-2"></i>Hapus Semua
                     </button>
+                </div>
+            </div>
+            
+            <!-- Queue Warning -->
+            <div x-show="queue.length >= queueLimit" 
+                 class="mb-4 p-4 bg-red-900/20 border border-red-700/50 rounded-xl">
+                <div class="flex items-center gap-3">
+                    <i class="fas fa-exclamation-triangle text-red-400 text-lg"></i>
+                    <div>
+                        <p class="font-medium text-red-300">Antrian penuh (maksimal <span x-text="queueLimit"></span> lagu)</p>
+                        <p class="text-sm text-red-400/80 mt-1">Tunggu hingga beberapa lagu selesai diputar sebelum menambahkan request baru.</p>
+                    </div>
                 </div>
             </div>
             
@@ -229,7 +226,10 @@
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-4">
                                 <!-- Position Badge -->
-                                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                     :class="index === 0 ? 'bg-gradient-to-br from-green-600 to-blue-600' : 
+                                             index < 3 ? 'bg-gradient-to-br from-blue-600 to-purple-600' : 
+                                             'bg-gradient-to-br from-purple-600 to-pink-600'">
                                     <span class="font-bold" x-text="index + 1"></span>
                                 </div>
                                 
@@ -237,14 +237,17 @@
                                 <div class="flex-1">
                                     <div class="font-bold text-lg truncate max-w-md" x-text="item.query"></div>
                                     <div class="text-sm text-gray-400 mt-1">
-                                        Ditambahkan: <span x-text="formatTime(item.time)"></span>
+                                        <span x-text="'Posisi: ' + (index + 1)"></span>
+                                        • Ditambahkan: <span x-text="formatTime(item.time)"></span>
                                     </div>
                                 </div>
                             </div>
                             
                             <!-- Actions -->
                             <div class="flex items-center gap-2">
-                                <div class="text-sm text-gray-400" x-text="'~' + calculateWaitTime(index) + 'm'"></div>
+                                <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded">
+                                    <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
+                                </div>
                                 <button @click="removeRequest(item.id)"
                                         class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors">
                                     <i class="fas fa-times"></i>
@@ -256,52 +259,53 @@
             </div>
         </div>
 
-        <!-- Recent History -->
-        <!-- <div class="mt-8 glass-effect rounded-2xl p-6">
+        <!-- Stats Panel -->
+        <div class="mt-8 glass-effect rounded-2xl p-6">
             <h2 class="text-xl font-bold text-white mb-6">
-                <i class="fas fa-history mr-2 text-purple-400"></i>Riwayat Terbaru
+                <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik Sistem
             </h2>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <template x-for="item in history.slice(0, 6)" :key="item.id">
-                    <div class="bg-gray-800/50 p-4 rounded-xl">
-                        <div class="font-medium truncate" x-text="item.song.title"></div>
-                        <div class="text-sm text-gray-400 truncate" x-text="item.song.artist"></div>
-                        <div class="flex justify-between items-center mt-3 text-xs text-gray-500">
-                            <span x-text="formatTime(item.timestamp)"></span>
-                            <span x-text="formatDuration(item.duration)"></span>
-                        </div>
-                    </div>
-                </template>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
+                    <div class="text-4xl font-bold mb-2" x-text="queue.length"></div>
+                    <div class="text-sm text-gray-400">Dalam Antrian</div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="'Max: ' + queueLimit"></div>
+                </div>
                 
-                <div x-show="history.length === 0" class="col-span-3 text-center py-8">
-                    <p class="text-gray-500">Belum ada riwayat pemutaran</p>
+                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
+                    <div class="text-4xl font-bold mb-2" x-text="stats.totalSongs || 0"></div>
+                    <div class="text-sm text-gray-400">Total Diputar</div>
+                    <div class="text-xs text-gray-500 mt-1">Sepanjang waktu</div>
+                </div>
+                
+                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
+                    <div class="text-4xl font-bold mb-2" x-text="stats.totalTime || '0'"></div>
+                    <div class="text-sm text-gray-400">Total Menit</div>
+                    <div class="text-xs text-gray-500 mt-1">Waktu pemutaran</div>
                 </div>
             </div>
-        </div> -->
+        </div>
 
         <!-- Footer -->
         <footer class="mt-12 pt-8 border-t border-gray-800 text-center text-gray-500 text-sm">
             <div class="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div class="flex items-center gap-4">
                     <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                        <div class="w-2 h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
                         <span>Server: <span :class="isConnected ? 'text-green-400' : 'text-red-400'">
                             <span x-text="isConnected ? 'Online' : 'Offline'"></span>
                         </span></span>
                     </div>
                     <div class="hidden md:block">•</div>
                     <div>YouTube Music Bridge v2.1</div>
+                    <div class="hidden md:block">•</div>
+                    <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
                 </div>
                 
-                <div class="flex gap-4">
-                    <button @click="showSettings = !showSettings" class="text-gray-400 hover:text-white transition-colors">
-                        <i class="fas fa-cog"></i>
-                    </button>
+                <div>
+                    <p class="text-xs text-gray-600">Sistem real-time dengan auto-deteksi perubahan lagu</p>
                 </div>
             </div>
-            
-            <p class="mt-4">Sistem real-time dengan auto-deteksi perubahan lagu</p>
         </footer>
 
         <!-- Toast Notification -->
@@ -314,9 +318,11 @@
              x-transition:leave-end="opacity-0"
              class="fixed bottom-4 right-4 px-6 py-3 rounded-lg font-medium text-white z-50 shadow-xl"
              :class="toast.type === 'success' ? 'bg-green-600' : 
-                     toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'">
+                     toast.type === 'error' ? 'bg-red-600' : 
+                     toast.type === 'warning' ? 'bg-yellow-600' : 'bg-blue-600'">
             <i class="fas" :class="toast.type === 'success' ? 'fa-check-circle' : 
-                                   toast.type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'"></i>
+                                   toast.type === 'error' ? 'fa-exclamation-circle' : 
+                                   toast.type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle'"></i>
             <span class="ml-2" x-text="toast.message"></span>
         </div>
 
@@ -355,6 +361,7 @@
                     originalLock: 0,
                     basedOnSongDuration: 0
                 },
+                queueLimit: 100,
                 newRequest: '',
                 isConnected: false,
                 isLoading: false,
@@ -372,10 +379,12 @@
                 async init() {
                     await this.loadData();
                     
+                    // Auto refresh data every 3 seconds
                     setInterval(async () => {
                         await this.loadData();
                     }, 3000);
                     
+                    // Update lock progress every second
                     setInterval(() => {
                         this.updateLockProgress();
                     }, 1000);
@@ -400,12 +409,14 @@
                             this.lockInfo = statusData.lockInfo || {};
                             this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
+                            this.queueLimit = statusData.queueLimit || 100;
                         }
                         
                         if (queueRes && queueRes.ok) {
                             const queueData = await queueRes.json();
                             this.queue = queueData.queue || [];
                             this.stats.queueLength = queueData.queueLength || 0;
+                            this.queueLimit = queueData.queueLimit || 100;
                         }
                         
                         if (historyRes && historyRes.ok) {
@@ -423,6 +434,12 @@
                 async addRequest() {
                     if (!this.newRequest.trim()) {
                         this.showToast('Masukkan judul lagu atau nama artis', 'error');
+                        return;
+                    }
+                    
+                    // Cek batas antrian lokal
+                    if (this.queue.length >= this.queueLimit) {
+                        this.showToast(`Antrian penuh (maksimal ${this.queueLimit} lagu). Tunggu hingga beberapa lagu selesai.`, 'warning');
                         return;
                     }
                     
