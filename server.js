@@ -428,8 +428,14 @@ app.get('/get-request', (req, res) => {
   
   // Ambil request berikutnya
   const nextRequest = state.requestQueue.shift();
+  
+  // Parse judul dan artis dari query
+  const queryParts = nextRequest.query.split('-').map(part => part.trim());
+  
   state.activeRequest = {
     ...nextRequest,
+    parsedTitle: queryParts[0] || nextRequest.query,
+    parsedArtist: queryParts[1] || 'Unknown Artist',
     status: 'playing',
     startedAt: now
   };
@@ -449,12 +455,16 @@ app.get('/get-request', (req, res) => {
   // Simpan perubahan
   saveRequests();
   
-  console.log(`🎵 Next request: "${nextRequest.query}" (Lock: ${Math.round(lockDuration/1000)}s, Song: ${formatDuration(state.currentSong.duration)})`);
+  console.log(`🎵 Next request: "${nextRequest.query}"`);
+  console.log(`🎵 Parsed as: Title="${queryParts[0] || nextRequest.query}", Artist="${queryParts[1] || 'Unknown Artist'}"`);
+  console.log(`🔒 Lock duration: ${Math.round(lockDuration/1000)}s`);
   
   res.json({
     query: nextRequest.query,
     id: nextRequest.id,
     time: nextRequest.time,
+    parsedTitle: queryParts[0] || nextRequest.query,
+    parsedArtist: queryParts[1] || 'Unknown Artist',
     estimatedDuration: lockDuration,
     queueRemaining: state.requestQueue.length,
     lockUntil: state.requestLockUntil,
@@ -462,7 +472,7 @@ app.get('/get-request', (req, res) => {
   });
 });
 
-// 7. ADD NEW REQUEST
+// 7. ADD NEW REQUEST (Dengan validasi format)
 app.post('/request-song', (req, res) => {
   try {
     const { query } = req.body;
@@ -471,7 +481,15 @@ app.post('/request-song', (req, res) => {
       return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
-    // CEK BATAS ANRIAN (100 LAGU)
+    // Validasi format: harus mengandung tanda pemisah
+    const queryParts = query.split('-').map(part => part.trim());
+    
+    if (queryParts.length < 2) {
+      console.log(`⚠️ Query tanpa pemisah: "${query}"`);
+      // Tetap diterima, tapi beri warning di log
+    }
+    
+    // CEK BATAS ANTRIAN (100 LAGU)
     if (state.requestQueue.length >= QUEUE_LIMIT) {
       return res.status(429).json({ 
         error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu). Tunggu hingga beberapa lagu selesai diputar.`,
@@ -495,14 +513,19 @@ app.post('/request-song', (req, res) => {
       query: query.trim(),
       time: Date.now(),
       status: 'pending',
-      addedBy: req.ip || 'unknown'
+      addedBy: req.ip || 'unknown',
+      // Parse judul dan artis jika ada pemisah
+      title: queryParts[0] || query,
+      artist: queryParts[1] || 'Unknown Artist'
     };
     
     // Tambahkan ke queue
     state.requestQueue.push(newRequest);
     saveRequests();
     
-    console.log(`📝 Request added: "${query}" (Total: ${state.requestQueue.length}/${QUEUE_LIMIT})`);
+    console.log(`📝 Request added: "${query}"`);
+    console.log(`📝 Parsed as: Title="${queryParts[0] || query}", Artist="${queryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
     
     // Jika tidak ada request aktif, set ini sebagai berikutnya
     if (!state.activeRequest && state.requestLockUntil === 0) {
@@ -869,7 +892,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: Date.now(),
-    version: '2.1.0',
+    version: '2.2.0',
     uptime: process.uptime(),
     queueLimit: QUEUE_LIMIT
   });

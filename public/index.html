@@ -43,6 +43,33 @@
         .admin-badge {
             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
+        .input-error {
+            animation: shake 0.5s ease-in-out;
+            border-color: #f87171 !important;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+        .scrollbar-thin {
+            scrollbar-width: thin;
+            scrollbar-color: #4b5563 #1f2937;
+        }
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: #1f2937;
+            border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 3px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -168,6 +195,7 @@
                 </div>
             </div>
 
+            <!-- Tambah Request Panel -->
             <div>
                 <div class="glass-effect rounded-2xl p-6 h-full">
                     <h2 class="text-xl font-bold text-white mb-6">
@@ -175,12 +203,48 @@
                     </h2>
                     
                     <div class="space-y-4">
+                        <!-- Judul Lagu -->
                         <div>
-                            <input x-model="newRequest" 
+                            <label class="block text-sm font-medium text-gray-400 mb-2">
+                                <i class="fas fa-music mr-1"></i>Judul Lagu *
+                            </label>
+                            <input x-model="newRequest.title" 
                                    @keydown.enter="addRequest()"
-                                   placeholder="Masukkan judul lagu atau artis..."
-                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors">
+                                   placeholder="Contoh: Bad Liar"
+                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
+                                   :class="showTitleError ? 'input-error border-red-500' : ''">
+                            <div x-show="showTitleError" class="mt-1 text-sm text-red-400">
+                                <i class="fas fa-exclamation-circle mr-1"></i>Judul lagu wajib diisi
+                            </div>
                         </div>
+                        
+                        <!-- Nama Artis -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-2">
+                                <i class="fas fa-user mr-1"></i>Nama Artis *
+                            </label>
+                            <input x-model="newRequest.artist" 
+                                   @keydown.enter="addRequest()"
+                                   placeholder="Contoh: Imagine Dragons"
+                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
+                                   :class="showArtistError ? 'input-error border-red-500' : ''">
+                            <div x-show="showArtistError" class="mt-1 text-sm text-red-400">
+                                <i class="fas fa-exclamation-circle mr-1"></i>Nama artis wajib diisi
+                            </div>
+                        </div>
+                        
+                        <!-- Format yang Disarankan -->
+                        <!-- <div class="bg-gray-800/30 p-3 rounded-lg">
+                            <div class="flex items-start gap-2">
+                                <i class="fas fa-lightbulb text-yellow-400 mt-0.5"></i>
+                                <div class="text-sm text-gray-400">
+                                    <p class="font-medium">Format yang direkomendasikan:</p>
+                                    <p class="mt-1">Judul: <span class="text-gray-300">Bad Liar</span></p>
+                                    <p>Artis: <span class="text-gray-300">Imagine Dragons</span></p>
+                                    <p class="mt-1 text-xs">Format lengkap akan dikirim: <span class="text-gray-300">Bad Liar - Imagine Dragons</span></p>
+                                </div>
+                            </div>
+                        </div> -->
                         
                         <!-- Queue Status -->
                         <div class="bg-gray-800/50 p-3 rounded-lg">
@@ -197,12 +261,19 @@
                             </div>
                         </div>
                         
+                        <!-- Tombol Submit -->
                         <button @click="addRequest()"
-                                :disabled="!newRequest.trim() || queue.length >= queueLimit"
+                                :disabled="!newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
                                 class="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
                             <i class="fas fa-plus mr-2"></i>
                             <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : 'Tambah ke Antrian'"></span>
                         </button>
+                        
+                        <!-- Info Validasi -->
+                        <!-- <div class="text-xs text-gray-500 text-center">
+                            <p><span class="text-red-400">*</span> Wajib diisi</p>
+                            <p class="mt-1">Request akan dikirim dalam format: "Judul Lagu - Nama Artis"</p>
+                        </div> -->
                     </div>
                 </div>
             </div>
@@ -258,7 +329,7 @@
             </div>
             
             <!-- Queue Items -->
-            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2" x-show="queue.length > 0">
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin" x-show="queue.length > 0">
                 <template x-for="(item, index) in queue" :key="item.id">
                     <div class="bg-gray-800/50 hover:bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
                         <div class="flex items-center justify-between">
@@ -304,11 +375,14 @@
                                 <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded">
                                     <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
                                 </div>
-                          <template x-if="isAdmin">
-    <button @click="removeRequest(item.id)" ...>
-        <i class="fas fa-times"></i>
-    </button>
-</template>
+                                
+                                <template x-if="isAdmin">
+                                    <button @click="removeRequest(item.id)"
+                                            class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
+                                            title="Hapus request">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -354,7 +428,7 @@
                         </span></span>
                     </div>
                     <div class="hidden md:block">•</div>
-                    <div>YouTube Music Bridge v2.1</div>
+                    <div>YouTube Music Bridge v2.2</div>
                     <div class="hidden md:block">•</div>
                     <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
                     <div class="hidden md:block">•</div>
@@ -453,7 +527,12 @@
                     basedOnSongDuration: 0
                 },
                 queueLimit: 100,
-                newRequest: '',
+                newRequest: {
+                    title: '',
+                    artist: ''
+                },
+                showTitleError: false,
+                showArtistError: false,
                 isConnected: false,
                 isLoading: false,
                 isRefreshing: false,
@@ -559,10 +638,30 @@
                 
                 // Add new request
                 async addRequest() {
-                    if (!this.newRequest.trim()) {
-                        this.showToast('Masukkan judul lagu atau nama artis', 'error');
+                    // Reset error states
+                    this.showTitleError = false;
+                    this.showArtistError = false;
+                    
+                    // Validasi input
+                    let hasError = false;
+                    
+                    if (!this.newRequest.title.trim()) {
+                        this.showTitleError = true;
+                        hasError = true;
+                    }
+                    
+                    if (!this.newRequest.artist.trim()) {
+                        this.showArtistError = true;
+                        hasError = true;
+                    }
+                    
+                    if (hasError) {
+                        this.showToast('Harap isi judul lagu dan nama artis', 'error');
                         return;
                     }
+                    
+                    // Gabungkan judul dan artis menjadi satu query
+                    const combinedQuery = `${this.newRequest.title.trim()} - ${this.newRequest.artist.trim()}`;
                     
                     // Cek batas antrian lokal
                     if (this.queue.length >= this.queueLimit) {
@@ -576,13 +675,17 @@
                         const response = await fetch('/request-song', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query: this.newRequest })
+                            body: JSON.stringify({ query: combinedQuery })
                         });
                         
                         const result = await response.json();
                         
                         if (response.ok) {
-                            this.newRequest = '';
+                            // Reset form
+                            this.newRequest = {
+                                title: '',
+                                artist: ''
+                            };
                             await this.loadData();
                             this.showToast(`Ditambahkan ke antrian (Posisi: ${result.queuePosition})`, 'success');
                         } else {
@@ -841,7 +944,7 @@
                 async moveRequestUp(requestId, currentIndex) {
                     if (!this.isAdmin) return;
                     
-                    const newPosition = currentIndex; // Pindah ke atas = posisi tetap
+                    const newPosition = currentIndex;
                     
                     try {
                         const response = await fetch('/admin/move-request', {
@@ -872,7 +975,7 @@
                 async moveRequestDown(requestId, currentIndex) {
                     if (!this.isAdmin) return;
                     
-                    const newPosition = currentIndex + 2; // Pindah ke bawah = posisi +2
+                    const newPosition = currentIndex + 2;
                     
                     try {
                         const response = await fetch('/admin/move-request', {
@@ -973,9 +1076,12 @@
                         type
                     };
                     
+                    // Untuk error, tambahkan durasi lebih lama
+                    const duration = type === 'error' ? 5000 : 3000;
+                    
                     setTimeout(() => {
                         this.toast.show = false;
-                    }, 3000);
+                    }, duration);
                 }
             }
         }
