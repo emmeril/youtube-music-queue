@@ -664,7 +664,7 @@
                     }
                     
                     // Gabungkan judul dan artis menjadi satu query
-                    const combinedQuery = `${this.newRequest.title.trim()} - ${this.newRequest.artist.trim()}`;
+                    const combinedQuery = `${this.newRequest.title.trim()} , ${this.newRequest.artist.trim()}`;
                     
                     // Cek batas antrian lokal
                     if (this.queue.length >= this.queueLimit) {
