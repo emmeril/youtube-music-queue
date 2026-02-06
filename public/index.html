@@ -664,8 +664,11 @@
                     }
                     
                     // Gabungkan judul dan artis menjadi satu query
-                    const combinedQuery = `${this.newRequest.title.trim()} , ${this.newRequest.artist.trim()}`;
-                    
+                    const combinedQuery = [this.newRequest.title, this.newRequest.artist]
+  .map(v => v?.trim())
+  .filter(Boolean)
+  .join(", ");
+
                     // Cek batas antrian lokal
                     if (this.queue.length >= this.queueLimit) {
                         this.showToast(`Antrian penuh (maksimal ${this.queueLimit} lagu). Tunggu hingga beberapa lagu selesai.`, 'warning');
