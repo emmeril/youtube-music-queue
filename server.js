@@ -887,14 +887,101 @@ app.get('/stats', (req, res) => {
   });
 });
 
-// 19. HEALTH CHECK
+// 19. ADD PRIORITY REQUEST (Admin only - langsung ke posisi pertama)
+app.post('/admin/request-first', requireAdmin, (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: 'Query tidak boleh kosong' });
+    }
+
+    // Validasi format: harus mengandung tanda pemisah
+    const queryParts = query.split('-').map(part => part.trim());
+    
+    if (queryParts.length < 2) {
+      console.log(`⚠️ Query tanpa pemisah: "${query}"`);
+      // Tetap diterima, tapi beri warning di log
+    }
+
+    // CEK BATAS ANTRIAN (100 LAGU)
+    if (state.requestQueue.length >= QUEUE_LIMIT) {
+      return res.status(429).json({ 
+        error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu). Tunggu hingga beberapa lagu selesai diputar.`,
+        queueLimit: QUEUE_LIMIT,
+        currentQueue: state.requestQueue.length
+      });
+    }
+
+    // Cek duplikat di queue
+    const isDuplicate = state.requestQueue.some(req => 
+      req.query.toLowerCase() === query.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
+    }
+
+    // Buat request baru dengan flag priority
+    const newRequest = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+      query: query.trim(),
+      time: Date.now(),
+      status: 'pending',
+      addedBy: req.ip || 'unknown',
+      title: queryParts[0] || query,
+      artist: queryParts[1] || 'Unknown Artist',
+      isPriority: true,
+      addedByAdmin: true
+    };
+
+    // Tambahkan ke awal queue (posisi pertama)
+    state.requestQueue.unshift(newRequest);
+    saveRequests();
+
+    console.log(`📝 Priority request added (first position): "${query}"`);
+    console.log(`📝 Parsed as: Title="${queryParts[0] || query}", Artist="${queryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
+
+    res.json({
+      success: true,
+      message: 'Priority request berhasil ditambahkan di posisi pertama',
+      request: newRequest,
+      queuePosition: 1,
+      estimatedWait: 0, // Langsung pertama
+      queueLimit: QUEUE_LIMIT,
+      remainingSlots: QUEUE_LIMIT - state.requestQueue.length
+    });
+
+  } catch (error) {
+    console.error('Error in /admin/request-first:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 20. GET APP VERSION
+app.get('/version', (req, res) => {
+  res.json({
+    version: '2.3.0',
+    buildTime: Date.now(),
+    features: ['queue-limit-100', 'admin-priority-request', 'auto-refresh'],
+    serverUptime: process.uptime(),
+    queueSize: state.requestQueue.length,
+    activeUsers: Object.keys(adminSession || {}).length > 0 ? 1 : 0
+  });
+});
+
+// 21. HEALTH CHECK
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: Date.now(),
-    version: '2.2.0',
+    version: '2.3.0',
     uptime: process.uptime(),
-    queueLimit: QUEUE_LIMIT
+    queueLimit: QUEUE_LIMIT,
+    currentQueue: state.requestQueue.length,
+    isLocked: Date.now() < state.requestLockUntil,
+    lockRemaining: Math.max(0, state.requestLockUntil - Date.now())
   });
 });
 
@@ -953,6 +1040,8 @@ app.listen(PORT, () => {
   console.log(`🎵 Current song: ${state.currentSong.title}`);
   console.log(`🔐 Admin password: ${ADMIN_PASSWORD}`);
   console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
+  console.log(`🔄 Auto-refresh: Enabled`);
+  console.log(`👑 Priority requests: Admin only`);
   console.log("=".repeat(50));
   
   // Log lock status jika ada

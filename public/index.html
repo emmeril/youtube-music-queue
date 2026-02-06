@@ -43,6 +43,9 @@
         .admin-badge {
             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
         }
+        .priority-badge {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
         .input-error {
             animation: shake 0.5s ease-in-out;
             border-color: #f87171 !important;
@@ -70,19 +73,85 @@
         .scrollbar-thin::-webkit-scrollbar-thumb:hover {
             background: #6b7280;
         }
+        .version-badge {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
+    <!-- Auto Refresh System -->
+    <script>
+        // Service Worker untuk auto-refresh
+        if ('serviceWorker' in navigator) {
+            let refreshing = false;
+            
+            // Cek versi aplikasi setiap 5 menit
+            setInterval(async () => {
+                try {
+                    const response = await fetch('/version');
+                    const data = await response.json();
+                    const savedVersion = localStorage.getItem('appVersion');
+                    
+                    if (savedVersion && savedVersion !== data.version) {
+                        if (!refreshing) {
+                            refreshing = true;
+                            console.log('🔄 New version detected, refreshing...');
+                            
+                            // Tampilkan notifikasi
+                            const toastEvent = new CustomEvent('show-toast', {
+                                detail: {
+                                    message: 'Aplikasi diperbarui. Memuat ulang...',
+                                    type: 'info'
+                                }
+                            });
+                            document.dispatchEvent(toastEvent);
+                            
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 2000);
+                        }
+                    }
+                    
+                    // Simpan versi terbaru
+                    localStorage.setItem('appVersion', data.version);
+                    localStorage.setItem('lastVersionCheck', Date.now());
+                    
+                } catch (error) {
+                    console.log('Version check failed:', error);
+                }
+            }, 300000); // Cek setiap 5 menit
+        }
+
+        // Force refresh jika aplikasi terlalu lama terbuka
+        const lastReload = localStorage.getItem('lastReload');
+        const now = Date.now();
+        
+        if (!lastReload || (now - parseInt(lastReload)) > 3600000) { // 1 jam
+            console.log('🔄 App refresh due to long session');
+            localStorage.setItem('lastReload', now);
+            
+            // Clear cache
+            if ('caches' in window) {
+                caches.keys().then(names => {
+                    names.forEach(name => caches.delete(name));
+                });
+            }
+        }
+    </script>
+
     <div x-data="app()" x-init="init()" class="max-w-7xl mx-auto p-4 md:p-6">
         
         <!-- Header -->
         <header class="mb-8">
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
-                        <i class="fas fa-music mr-3"></i>YouTube Music Monse
-                    </h1>
-                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu)</p>
+                    <div class="flex items-center gap-3 mb-2">
+                        <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
+                            <i class="fas fa-music mr-3"></i>YouTube Music Monse
+                        </h1>
+                        <span class="version-badge text-xs px-2 py-1 rounded-full" x-text="'v' + appVersion"></span>
+                    </div>
+                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu) • Auto-Refresh Active</p>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg">
@@ -143,29 +212,28 @@
                             <i class="fas fa-music text-3xl text-white"></i>
                         </div>
                         
-                        
-                      <!-- Song Info -->
-<div class="flex-1">
-    <div class="text-2xl font-bold mb-2 break-words whitespace-normal max-w-full" 
-         x-text="currentSong.title || 'Tidak ada lagu'"></div>
-    <div class="text-lg text-gray-300 mb-4 break-words whitespace-normal max-w-full" 
-         x-text="currentSong.artist || 'Unknown artist'"></div>
-    
-    <div class="flex flex-wrap items-center gap-4">
-        <div class="flex items-center gap-2">
-            <i class="fas fa-clock text-gray-400"></i>
-            <span class="font-mono" x-text="formatDuration(currentSong.duration)"></span>
-        </div>
-        <div class="flex items-center gap-2">
-            <i class="fas fa-chart-line text-gray-400"></i>
-            <span x-text="currentSong.confidence + '% confidence'"></span>
-        </div>
-        <div class="flex items-center gap-2">
-            <i class="fa-solid fa-play"></i>
-            <span x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
-        </div>
-    </div>
-</div>
+                        <!-- Song Info -->
+                        <div class="flex-1">
+                            <div class="text-2xl font-bold mb-2 break-words whitespace-normal max-w-full" 
+                                 x-text="currentSong.title || 'Tidak ada lagu'"></div>
+                            <div class="text-lg text-gray-300 mb-4 break-words whitespace-normal max-w-full" 
+                                 x-text="currentSong.artist || 'Unknown artist'"></div>
+                            
+                            <div class="flex flex-wrap items-center gap-4">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-clock text-gray-400"></i>
+                                    <span class="font-mono" x-text="formatDuration(currentSong.duration)"></span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-chart-line text-gray-400"></i>
+                                    <span x-text="currentSong.confidence + '% confidence'"></span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <i class="fa-solid fa-play"></i>
+                                    <span x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Progress Bar -->
@@ -206,6 +274,14 @@
                     </h2>
                     
                     <div class="space-y-4">
+                        <!-- Priority Request Checkbox (Admin only) -->
+                        <div x-show="isAdmin" class="flex items-center gap-2 mb-3">
+                            <input type="checkbox" x-model="priorityRequest" id="priority" class="w-4 h-4 text-yellow-600 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
+                            <label for="priority" class="text-sm text-yellow-400">
+                                <i class="fas fa-crown mr-1"></i>Tambahkan sebagai PRIORITAS (langsung di posisi pertama)
+                            </label>
+                        </div>
+                        
                         <!-- Judul Lagu -->
                         <div>
                             <label class="block text-sm font-medium text-gray-400 mb-2">
@@ -236,19 +312,17 @@
                             </div>
                         </div>
                         
-                        <!-- Format yang Disarankan -->
+                        <!-- Format Info -->
                         <!-- <div class="bg-gray-800/30 p-3 rounded-lg">
                             <div class="flex items-start gap-2">
-                                <i class="fas fa-lightbulb text-yellow-400 mt-0.5"></i>
+                                <i class="fas fa-info-circle text-blue-400 mt-0.5"></i>
                                 <div class="text-sm text-gray-400">
-                                    <p class="font-medium">Format yang direkomendasikan:</p>
-                                    <p class="mt-1">Judul: <span class="text-gray-300">Bad Liar</span></p>
-                                    <p>Artis: <span class="text-gray-300">Imagine Dragons</span></p>
-                                    <p class="mt-1 text-xs">Format lengkap akan dikirim: <span class="text-gray-300">Bad Liar - Imagine Dragons</span></p>
+                                    <p class="font-medium">Format yang akan dikirim:</p>
+                                    <p class="mt-1"><span class="text-gray-300" x-text="newRequest.title || 'Judul Lagu'"></span> official - <span class="text-gray-300" x-text="newRequest.artist || 'Nama Artis'"></span></p>
                                 </div>
                             </div>
-                        </div> -->
-                        
+                        </div>
+                         -->
                         <!-- Queue Status -->
                         <div class="bg-gray-800/50 p-3 rounded-lg">
                             <div class="flex justify-between items-center mb-1">
@@ -265,18 +339,20 @@
                         </div>
                         
                         <!-- Tombol Submit -->
-                        <button @click="addRequest()"
-                                :disabled="!newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
-                                class="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                            <i class="fas fa-plus mr-2"></i>
-                            <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : 'Tambah ke Antrian'"></span>
-                        </button>
+                        <div class="flex gap-2">
+                            <button @click="addRequest()"
+                                    :disabled="!newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
+                                    class="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-plus mr-2"></i>
+                                <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian')"></span>
+                            </button>
+                        </div>
                         
-                        <!-- Info Validasi -->
-                        <!-- <div class="text-xs text-gray-500 text-center">
+                        <!-- Info -->
+                        <div class="text-xs text-gray-500 text-center">
                             <p><span class="text-red-400">*</span> Wajib diisi</p>
-                            <p class="mt-1">Request akan dikirim dalam format: "Judul Lagu - Nama Artis"</p>
-                        </div> -->
+                            <p class="mt-1" x-text="priorityRequest && isAdmin ? 'Request akan langsung masuk posisi pertama!' : 'Request akan masuk di akhir antrian'"></p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -347,10 +423,23 @@
                                 
                                 <!-- Request Info -->
                                 <div class="flex-1">
-                                    <div class="font-bold text-lg truncate max-w-md" x-text="item.query"></div>
+                                    <div class="flex items-center gap-2">
+                                        <div class="font-bold text-lg truncate max-w-md" x-text="item.query"></div>
+                                        <!-- Priority Badge -->
+                                        <template x-if="item.isPriority">
+                                            <div class="px-2 py-1 priority-badge text-xs font-bold rounded-full">
+                                                <i class="fas fa-crown mr-1"></i>PRIORITY
+                                            </div>
+                                        </template>
+                                    </div>
                                     <div class="text-sm text-gray-400 mt-1">
                                         <span x-text="'Posisi: ' + (index + 1)"></span>
                                         • Ditambahkan: <span x-text="formatTime(item.time)"></span>
+                                        <template x-if="item.addedByAdmin">
+                                            <span class="ml-2 text-green-400">
+                                                <i class="fas fa-user-shield mr-1"></i>Admin
+                                            </span>
+                                        </template>
                                     </div>
                                 </div>
                             </div>
@@ -431,15 +520,17 @@
                         </span></span>
                     </div>
                     <div class="hidden md:block">•</div>
-                    <div>YouTube Music Bridge v2.2</div>
+                    <div>YouTube Music Bridge <span x-text="'v' + appVersion"></span></div>
                     <div class="hidden md:block">•</div>
                     <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
                     <div class="hidden md:block">•</div>
                     <div><span x-text="isAdmin ? 'Admin Mode' : 'User Mode'" :class="isAdmin ? 'text-green-400' : ''"></span></div>
                 </div>
                 
-                <div>
-                    <p class="text-xs text-gray-600">Sistem real-time dengan auto-deteksi perubahan lagu</p>
+                <div class="flex items-center gap-2">
+                    <div class="text-xs text-gray-600">Auto-refresh: <span class="text-green-400">Aktif</span></div>
+                    <div class="text-xs text-gray-600">•</div>
+                    <div class="text-xs text-gray-600">Priority requests: <span x-text="isAdmin ? 'Tersedia' : 'Admin only'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
                 </div>
             </div>
         </footer>
@@ -507,6 +598,7 @@
         function app() {
             return {
                 // State
+                appVersion: '2.3.0',
                 currentSong: {
                     title: '',
                     artist: '',
@@ -534,6 +626,7 @@
                     title: '',
                     artist: ''
                 },
+                priorityRequest: false,
                 showTitleError: false,
                 showArtistError: false,
                 isConnected: false,
@@ -557,6 +650,11 @@
                 
                 // Initialize
                 async init() {
+                    // Inisialisasi event listener untuk toast dari service worker
+                    document.addEventListener('show-toast', (event) => {
+                        this.showToast(event.detail.message, event.detail.type);
+                    });
+                    
                     // Cek admin session dari localStorage
                     const savedToken = localStorage.getItem('adminToken');
                     const savedExpires = localStorage.getItem('adminExpires');
@@ -568,6 +666,9 @@
                     }
                     
                     await this.loadData();
+                    
+                    // Cek versi aplikasi
+                    await this.checkVersion();
                     
                     // Auto refresh data every 3 seconds
                     setInterval(async () => {
@@ -585,6 +686,11 @@
                             this.checkAdminSession();
                         }
                     }, 60000);
+                    
+                    // Cek versi aplikasi setiap 2 menit
+                    setInterval(async () => {
+                        await this.checkVersion();
+                    }, 120000);
                 },
                 
                 // Load all data
@@ -596,10 +702,9 @@
                             headers['x-admin-token'] = this.adminToken;
                         }
                         
-                        const [statusRes, queueRes, historyRes] = await Promise.all([
+                        const [statusRes, queueRes] = await Promise.all([
                             fetch('/status', { headers }).catch(() => null),
-                            fetch('/queue-info', { headers }).catch(() => null),
-                            fetch('/history?limit=6', { headers }).catch(() => null)
+                            fetch('/queue-info', { headers }).catch(() => null)
                         ]);
                         
                         this.isConnected = statusRes && statusRes.ok;
@@ -620,17 +725,6 @@
                             this.queue = queueData.queue || [];
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
-                            
-                            // Tambahkan posisi untuk setiap item
-                            this.queue = this.queue.map((item, index) => ({
-                                ...item,
-                                position: index + 1
-                            }));
-                        }
-                        
-                        if (historyRes && historyRes.ok) {
-                            const historyData = await historyRes.json();
-                            this.history = historyData.history || [];
                         }
                         
                     } catch (error) {
@@ -675,10 +769,21 @@
                     this.isLoading = true;
                     
                     try {
-                        const response = await fetch('/request-song', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ query: combinedQuery })
+                        // Jika admin dan priority request, gunakan endpoint khusus
+                        let endpoint = '/request-song';
+                        let method = 'POST';
+                        let bodyData = { query: combinedQuery };
+                        let requestHeaders = { 'Content-Type': 'application/json' };
+                        
+                        if (this.isAdmin && this.priorityRequest) {
+                            endpoint = '/admin/request-first';
+                            requestHeaders['x-admin-token'] = this.adminToken;
+                        }
+                        
+                        const response = await fetch(endpoint, {
+                            method: method,
+                            headers: requestHeaders,
+                            body: JSON.stringify(bodyData)
                         });
                         
                         const result = await response.json();
@@ -689,10 +794,22 @@
                                 title: '',
                                 artist: ''
                             };
+                            this.priorityRequest = false;
+                            
                             await this.loadData();
-                            this.showToast(`Ditambahkan ke antrian (Posisi: ${result.queuePosition})`, 'success');
+                            
+                            if (this.isAdmin && this.priorityRequest) {
+                                this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.queuePosition})`, 'success');
+                            } else {
+                                this.showToast(`Ditambahkan ke antrian (Posisi: ${result.queuePosition})`, 'success');
+                            }
                         } else {
-                            this.showToast(`Error: ${result.error}`, 'error');
+                            if (response.status === 403) {
+                                this.showToast('Akses ditolak. Hanya admin yang bisa menambahkan prioritas.', 'error');
+                                this.isAdmin = false;
+                            } else {
+                                this.showToast(`Error: ${result.error}`, 'error');
+                            }
                         }
                     } catch (error) {
                         this.showToast('Gagal menambahkan request', 'error');
@@ -941,6 +1058,31 @@
                         }
                     } catch (error) {
                         console.error('Session check error:', error);
+                    }
+                },
+                
+                // Check app version
+                async checkVersion() {
+                    try {
+                        const response = await fetch('/version');
+                        if (response.ok) {
+                            const data = await response.json();
+                            const savedVersion = localStorage.getItem('appVersion');
+                            
+                            if (savedVersion && savedVersion !== data.version) {
+                                // Versi berubah, reload halaman
+                                this.showToast('Aplikasi telah diperbarui. Memuat ulang...', 'info');
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 2000);
+                            } else {
+                                // Simpan versi baru
+                                localStorage.setItem('appVersion', data.version);
+                                this.appVersion = data.version;
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Version check error:', error);
                     }
                 },
                 
