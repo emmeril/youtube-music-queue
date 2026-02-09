@@ -1,3 +1,5 @@
+[file name]: index.html
+[file content begin]
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -135,10 +137,69 @@
             .song-title {
                 -webkit-line-clamp: 1;
                 max-height: 1.4em;
+                font-size: 0.95rem;
             }
             .current-song-title {
                 -webkit-line-clamp: 1;
                 max-height: 1.5em;
+            }
+            /* Perbaikan untuk antrian di mobile */
+            .queue-item-mobile {
+                padding: 12px;
+                border-radius: 12px;
+            }
+            .position-badge-mobile {
+                width: 32px;
+                height: 32px;
+                font-size: 0.875rem;
+            }
+            .queue-info-mobile {
+                flex-direction: column;
+                gap: 4px;
+            }
+            .queue-actions-mobile {
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 8px;
+                padding-top: 8px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            .queue-wait-time-mobile {
+                min-width: 60px;
+                font-size: 0.75rem;
+            }
+            /* Perbaikan layout header di mobile */
+            .header-mobile {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            .header-actions-mobile {
+                width: 100%;
+                justify-content: space-between;
+            }
+            /* Perbaikan untuk panel lagu saat ini di mobile */
+            .current-song-panel-mobile {
+                flex-direction: column;
+                gap: 16px;
+            }
+            .current-song-info-mobile {
+                width: 100%;
+            }
+            /* Perbaikan untuk form tambah request di mobile */
+            .add-request-panel-mobile {
+                padding: 16px;
+            }
+            /* Perbaikan untuk statistik di mobile */
+            .stats-grid-mobile {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+            /* Perbaikan untuk footer di mobile */
+            .footer-mobile {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
             }
         }
         /* Official badge */
@@ -147,6 +208,55 @@
             font-size: 0.7rem;
             padding: 2px 6px;
             border-radius: 4px;
+        }
+        /* Mobile-specific styles */
+        .mobile-queue-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .mobile-queue-main {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .mobile-queue-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .mobile-queue-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .mobile-meta-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        .mobile-queue-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 8px;
+            margin-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .mobile-action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        @media (min-width: 769px) {
+            .mobile-queue-item {
+                display: none;
+            }
+        }
+        @media (max-width: 768px) {
+            .queue-item:not(.mobile-queue-item) {
+                display: none;
+            }
         }
     </style>
 </head>
@@ -215,24 +325,24 @@
         
         <!-- Header -->
         <header class="mb-8">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 header-mobile">
                 <div>
                     <div class="flex items-center gap-3 mb-2">
-                        <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
-                            <i class="fas fa-music mr-3"></i>YouTube Music Monse
+                        <h1 class="text-2xl md:text-4xl font-bold bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
+                            <i class="fas fa-music mr-2 md:mr-3"></i>YouTube Music Monse
                         </h1>
                         <span class="version-badge text-xs px-2 py-1 rounded-full" x-text="'v' + appVersion"></span>
                     </div>
-                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu)</p>
+                    <p class="text-gray-400 mt-2 text-sm md:text-base">Sistem Request Music (Max 100 Lagu)</p>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg">
+                <div class="flex items-center gap-4 w-full md:w-auto header-actions-mobile">
+                    <div class="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 rounded-lg">
                         <div class="w-2 h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
-                        <span class="text-sm" :class="isConnected ? 'text-green-400' : 'text-red-400'">
+                        <span class="text-xs md:text-sm" :class="isConnected ? 'text-green-400' : 'text-red-400'">
                             <span x-text="isConnected ? 'Connected' : 'Disconnected'"></span>
                         </span>
                     </div>
-                    <button @click="refreshAll()" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                    <button @click="refreshAll()" class="px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
                         <i class="fas fa-sync-alt" :class="isRefreshing ? 'animate-spin' : ''"></i>
                         <span class="ml-2 hidden md:inline">Refresh</span>
                     </button>
@@ -240,20 +350,20 @@
                     <!-- Tombol Admin -->
                     <template x-if="!isAdmin">
                         <button @click="showAdminLogin = true" 
-                                class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                            <i class="fas fa-user-shield mr-2"></i>
+                                class="px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
+                            <i class="fas fa-user-shield md:mr-2"></i>
                             <span class="hidden md:inline">Admin</span>
                         </button>
                     </template>
 
                     <template x-if="isAdmin">
                         <div class="flex items-center gap-2">
-                            <div class="text-sm text-green-400 px-3 py-1 admin-badge rounded-lg">
+                            <div class="text-xs md:text-sm text-green-400 px-2 py-1 md:px-3 md:py-1 admin-badge rounded-lg">
                                 <i class="fas fa-user-shield mr-1"></i>
                                 <span class="hidden md:inline">Admin Mode</span>
                             </div>
                             <button @click="adminLogout()" 
-                                    class="px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
+                                    class="px-2 py-1 md:px-3 md:py-1 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
                                 <i class="fas fa-sign-out-alt"></i>
                             </button>
                         </div>
@@ -263,78 +373,77 @@
         </header>
 
         <!-- Main Dashboard -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
             
             <!-- Current Song Panel -->
             <div class="lg:col-span-2">
-                <div class="glass-effect rounded-2xl p-6">
-                    <div class="flex items-center justify-between mb-6">
-                        <h2 class="text-xl font-bold text-white">
+                <div class="glass-effect rounded-2xl p-4 md:p-6">
+                    <div class="flex items-center justify-between mb-4 md:mb-6">
+                        <h2 class="text-lg md:text-xl font-bold text-white">
                             <i class="fas fa-play-circle mr-2 text-green-400"></i>Lagu Saat Ini
                         </h2>
-                        <div class="text-sm text-gray-400">
+                        <div class="text-xs md:text-sm text-gray-400">
                             <span x-text="formatTime(currentSong.timestamp)"></span>
                         </div>
                     </div>
                     
-                    <div class="flex flex-col md:flex-row items-start md:items-center gap-6">
+                    <div class="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6 current-song-panel-mobile">
                         <!-- Album Art Placeholder -->
-                        <div class="w-24 h-24 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
-                            <i class="fas fa-music text-3xl text-white"></i>
+                        <div class="w-16 h-16 md:w-24 md:h-24 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-music text-xl md:text-3xl text-white"></i>
                         </div>
                         
                         <!-- Song Info -->
-                        <div class="flex-1 min-w-0">
+                        <div class="flex-1 min-w-0 current-song-info-mobile">
                             <div class="tooltip">
-                                <div class="text-2xl font-bold mb-2 current-song-title" 
+                                <div class="text-lg md:text-2xl font-bold mb-1 md:mb-2 current-song-title" 
                                      x-text="currentSong.title || 'Tidak ada lagu'"></div>
                                 <div class="tooltip-text" x-text="currentSong.title || 'Tidak ada lagu'"></div>
                             </div>
-                            <div class="text-lg text-gray-300 mb-4 current-song-title" 
+                            <div class="text-base md:text-lg text-gray-300 mb-3 md:mb-4 current-song-title" 
                                  x-text="currentSong.artist || 'Unknown artist'"></div>
                             
-                            <div class="flex flex-wrap items-center gap-4">
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-clock text-gray-400"></i>
-                                    <span class="font-mono" x-text="formatDuration(currentSong.duration)"></span>
+                            <div class="flex flex-wrap items-center gap-3 md:gap-4">
+                                <div class="flex items-center gap-1 md:gap-2">
+                                    <i class="fas fa-clock text-gray-400 text-sm"></i>
+                                    <span class="font-mono text-sm" x-text="formatDuration(currentSong.duration)"></span>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-chart-line text-gray-400"></i>
-                                    <span x-text="currentSong.confidence + '% confidence'"></span>
+                                <div class="flex items-center gap-1 md:gap-2">
+                                    <i class="fas fa-chart-line text-gray-400 text-sm"></i>
+                                    <span class="text-sm" x-text="currentSong.confidence + '%'"></span>
                                 </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fa-solid fa-play"></i>
-                                    <span x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
+                                <div class="flex items-center gap-1 md:gap-2">
+                                    <i class="fa-solid fa-play text-sm"></i>
+                                    <span class="text-sm" x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Progress Bar -->
-                    <div class="mt-6" x-show="lockRemaining > 0">
-                        <div class="flex justify-between text-sm text-gray-400 mb-2">
+                    <div class="mt-4 md:mt-6" x-show="lockRemaining > 0">
+                        <div class="flex justify-between text-xs md:text-sm text-gray-400 mb-2">
                             <span>Request lock active</span>
                             <span x-text="formatWaitTime(lockRemaining) + ' remaining'"></span>
                         </div>
-                        <div class="w-full bg-gray-800 rounded-full h-2">
-                            <div class="bg-gradient-to-r from-green-500 to-blue-500 h-2 rounded-full transition-all duration-1000"
+                        <div class="w-full bg-gray-800 rounded-full h-1.5 md:h-2">
+                            <div class="bg-gradient-to-r from-green-500 to-blue-500 h-1.5 md:h-2 rounded-full transition-all duration-1000"
                                  :style="'width: ' + lockProgress + '%'"></div>
                         </div>
                         <div class="text-xs text-gray-500 mt-1 text-center">
                             Lock duration: <span x-text="formatDuration(lockInfo.originalLock)"></span> 
-                            (based on current song)
                         </div>
                     </div>
 
                     <!-- Admin Controls -->
-                    <div class="mt-6 flex gap-2" x-show="isAdmin">
+                    <div class="mt-4 md:mt-6 flex gap-2" x-show="isAdmin">
                         <button @click="skipCurrent()"
-                                class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors">
-                            <i class="fas fa-forward mr-2"></i>Skip Current
+                                class="px-3 py-1.5 md:px-4 md:py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-sm">
+                            <i class="fas fa-forward mr-1 md:mr-2"></i>Skip
                         </button>
                         <button @click="forceNext()"
-                                class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
-                            <i class="fas fa-step-forward mr-2"></i>Force Next
+                                class="px-3 py-1.5 md:px-4 md:py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm">
+                            <i class="fas fa-step-forward mr-1 md:mr-2"></i>Force Next
                         </button>
                     </div>
                 </div>
@@ -342,34 +451,32 @@
 
             <!-- Tambah Request Panel -->
             <div>
-                <div class="glass-effect rounded-2xl p-6 h-full">
-                    <h2 class="text-xl font-bold text-white mb-6">
+                <div class="glass-effect rounded-2xl p-4 md:p-6 h-full add-request-panel-mobile">
+                    <h2 class="text-lg md:text-xl font-bold text-white mb-4 md:mb-6">
                         <i class="fas fa-plus-circle mr-2 text-green-400"></i>Tambah Request
                     </h2>
                     
-                    <div class="space-y-4">
+                    <div class="space-y-3 md:space-y-4">
                         <!-- Priority Request Checkbox (Admin only) -->
-                        <div x-show="isAdmin" class="flex items-center gap-2 mb-3">
+                        <div x-show="isAdmin" class="flex items-center gap-2 mb-2 md:mb-3">
                             <input type="checkbox" x-model="priorityRequest" id="priority" class="w-4 h-4 text-yellow-600 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
-                            <label for="priority" class="text-sm text-yellow-400">
+                            <label for="priority" class="text-xs md:text-sm text-yellow-400">
                                 <i class="fas fa-crown mr-1"></i>langsung di posisi pertama
                             </label>
                         </div>
                         
-                     
-                        
                         <!-- Judul Lagu -->
                         <div>
-                            <label class="block text-sm font-medium text-gray-400 mb-2">
+                            <label class="block text-xs md:text-sm font-medium text-gray-400 mb-1 md:mb-2">
                                 <i class="fas fa-music mr-1"></i>Judul Lagu *
                             </label>
                             <input x-model="newRequest.title" 
                                    @keydown.enter="addRequest()"
                                    placeholder="Contoh: Bad Liar"
                                    maxlength="100"
-                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
+                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 md:px-4 md:py-3 focus:outline-none focus:border-red-500 transition-colors text-sm md:text-base"
                                    :class="showTitleError ? 'input-error border-red-500' : ''">
-                            <div x-show="showTitleError" class="mt-1 text-sm text-red-400">
+                            <div x-show="showTitleError" class="mt-1 text-xs md:text-sm text-red-400">
                                 <i class="fas fa-exclamation-circle mr-1"></i><span x-text="titleError"></span>
                             </div>
                             <div class="mt-1 text-xs text-gray-500">
@@ -379,16 +486,16 @@
                         
                         <!-- Nama Artis -->
                         <div>
-                            <label class="block text-sm font-medium text-gray-400 mb-2">
+                            <label class="block text-xs md:text-sm font-medium text-gray-400 mb-1 md:mb-2">
                                 <i class="fas fa-user mr-1"></i>Nama Artis *
                             </label>
                             <input x-model="newRequest.artist" 
                                    @keydown.enter="addRequest()"
                                    placeholder="Contoh: Imagine Dragons"
                                    maxlength="100"
-                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
+                                   class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 md:px-4 md:py-3 focus:outline-none focus:border-red-500 transition-colors text-sm md:text-base"
                                    :class="showArtistError ? 'input-error border-red-500' : ''">
-                            <div x-show="showArtistError" class="mt-1 text-sm text-red-400">
+                            <div x-show="showArtistError" class="mt-1 text-xs md:text-sm text-red-400">
                                 <i class="fas fa-exclamation-circle mr-1"></i><span x-text="artistError"></span>
                             </div>
                             <div class="mt-1 text-xs text-gray-500">
@@ -399,8 +506,8 @@
                         <!-- Queue Status -->
                         <div class="bg-gray-800/50 p-3 rounded-lg">
                             <div class="flex justify-between items-center mb-1">
-                                <span class="text-sm text-gray-400">Antrian:</span>
-                                <span class="font-medium" x-text="queue.length + '/' + queueLimit"></span>
+                                <span class="text-xs md:text-sm text-gray-400">Antrian:</span>
+                                <span class="font-medium text-sm md:text-base" x-text="queue.length + '/' + queueLimit"></span>
                             </div>
                             <div class="progress-bar">
                                 <div class="progress-fill" :style="'width: ' + (queue.length / queueLimit * 100) + '%'"></div>
@@ -415,8 +522,8 @@
                         <div class="flex gap-2">
                             <button @click="addRequest()"
                                     :disabled="!newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
-                                    class="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                                <i class="fas fa-plus mr-2"></i>
+                                    class="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-2.5 md:py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
+                                <i class="fas fa-plus mr-1 md:mr-2"></i>
                                 <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian')"></span>
                             </button>
                         </div>
@@ -426,16 +533,16 @@
         </div>
 
         <!-- Request Queue -->
-        <div class="mt-8 glass-effect rounded-2xl p-6">
-            <div class="flex justify-between items-center mb-6">
-                <div class="flex items-center gap-4">
-                    <h2 class="text-xl font-bold text-white">
+        <div class="mt-6 md:mt-8 glass-effect rounded-2xl p-4 md:p-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-0 mb-4 md:mb-6">
+                <div class="flex items-center gap-3 md:gap-4">
+                    <h2 class="text-lg md:text-xl font-bold text-white">
                         <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
                         <span class="text-gray-400 ml-2" x-text="'(' + queue.length + '/' + queueLimit + ')'"></span>
                     </h2>
                     
                     <!-- Queue Status Badge -->
-                    <div class="text-sm px-3 py-1 rounded-full" 
+                    <div class="text-xs md:text-sm px-2 py-1 md:px-3 md:py-1 rounded-full" 
                          :class="queue.length >= queueLimit ? 'bg-red-900/30 text-red-400' : 
                                  queue.length >= queueLimit * 0.8 ? 'bg-yellow-900/30 text-yellow-400' : 
                                  'bg-green-900/30 text-green-400'">
@@ -445,43 +552,43 @@
                     </div>
                 </div>
                 
-                <div class="flex gap-2">
+                <div class="flex gap-2 mt-2 md:mt-0">
                     <button @click="clearQueue()" 
                             x-show="isAdmin && queue.length > 0"
-                            class="px-4 py-2 bg-red-800 hover:bg-red-700 rounded-lg transition-colors">
-                        <i class="fas fa-trash mr-2"></i>Hapus Semua
+                            class="px-3 py-1.5 md:px-4 md:py-2 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
+                        <i class="fas fa-trash mr-1 md:mr-2"></i>Hapus Semua
                     </button>
                 </div>
             </div>
             
             <!-- Queue Warning -->
             <div x-show="queue.length >= queueLimit" 
-                 class="mb-4 p-4 bg-red-900/20 border border-red-700/50 rounded-xl">
+                 class="mb-4 p-3 md:p-4 bg-red-900/20 border border-red-700/50 rounded-xl">
                 <div class="flex items-center gap-3">
-                    <i class="fas fa-exclamation-triangle text-red-400 text-lg"></i>
+                    <i class="fas fa-exclamation-triangle text-red-400 text-base md:text-lg"></i>
                     <div>
-                        <p class="font-medium text-red-300">Antrian penuh (maksimal <span x-text="queueLimit"></span> lagu)</p>
-                        <p class="text-sm text-red-400/80 mt-1">Tunggu hingga beberapa lagu selesai diputar sebelum menambahkan request baru.</p>
+                        <p class="font-medium text-red-300 text-sm md:text-base">Antrian penuh (maksimal <span x-text="queueLimit"></span> lagu)</p>
+                        <p class="text-xs md:text-sm text-red-400/80 mt-1">Tunggu hingga beberapa lagu selesai diputar sebelum menambahkan request baru.</p>
                     </div>
                 </div>
             </div>
             
             <!-- Empty State -->
             <div x-show="queue.length === 0" 
-                 class="text-center py-12 border-2 border-dashed border-gray-800 rounded-xl">
-                <i class="fas fa-music text-4xl text-gray-700 mb-4"></i>
-                <p class="text-gray-500 text-lg">Antrian kosong</p>
-                <p class="text-gray-600 text-sm mt-2">Tambahkan request lagu di form sebelah</p>
+                 class="text-center py-8 md:py-12 border-2 border-dashed border-gray-800 rounded-xl">
+                <i class="fas fa-music text-3xl md:text-4xl text-gray-700 mb-3 md:mb-4"></i>
+                <p class="text-gray-500 text-base md:text-lg">Antrian kosong</p>
+                <p class="text-gray-600 text-xs md:text-sm mt-1 md:mt-2">Tambahkan request lagu di form sebelah</p>
             </div>
             
-            <!-- Queue Items -->
-            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin" x-show="queue.length > 0">
+            <!-- Queue Items Desktop -->
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin" x-show="queue.length > 0" class="hidden md:block">
                 <template x-for="(item, index) in queue" :key="item.id">
                     <div class="queue-item bg-gray-800/50 hover:bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
                         <div class="flex items-start justify-between">
                             <div class="flex items-start gap-4 flex-1 min-w-0">
                                 <!-- Position Badge -->
-                                <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+                                <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center position-badge-mobile"
                                      :class="index === 0 ? 'bg-gradient-to-br from-green-600 to-blue-600' : 
                                              index < 3 ? 'bg-gradient-to-br from-blue-600 to-purple-600' : 
                                              'bg-gradient-to-br from-purple-600 to-pink-600'">
@@ -494,11 +601,6 @@
                                         <div class="tooltip flex-1 min-w-0">
                                             <div class="font-bold text-lg song-title flex items-center gap-2">
                                                 <span x-text="item.query"></span>
-                                                <!-- Official Badge -->
-                                                <!-- <span class="official-badge text-white font-medium" 
-                                                      x-show="item.query.toLowerCase().includes('official')">
-                                                    OFFICIAL
-                                                </span> -->
                                             </div>
                                             <div class="tooltip-text" x-text="item.query"></div>
                                         </div>
@@ -557,43 +659,121 @@
                     </div>
                 </template>
             </div>
+            
+            <!-- Queue Items Mobile -->
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-1 scrollbar-thin" x-show="queue.length > 0" class="md:hidden">
+                <template x-for="(item, index) in queue" :key="item.id">
+                    <div class="mobile-queue-item bg-gray-800/50 hover:bg-gray-800 p-3 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
+                        <div class="mobile-queue-main">
+                            <!-- Position Badge -->
+                            <div class="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center"
+                                 :class="index === 0 ? 'bg-gradient-to-br from-green-600 to-blue-600' : 
+                                         index < 3 ? 'bg-gradient-to-br from-blue-600 to-purple-600' : 
+                                         'bg-gradient-to-br from-purple-600 to-pink-600'">
+                                <span class="font-bold text-sm" x-text="index + 1"></span>
+                            </div>
+                            
+                            <!-- Request Info -->
+                            <div class="mobile-queue-content">
+                                <div class="flex items-start gap-1 mb-1">
+                                    <div class="tooltip flex-1 min-w-0">
+                                        <div class="font-bold text-sm song-title">
+                                            <span x-text="item.query"></span>
+                                        </div>
+                                        <div class="tooltip-text" x-text="item.query"></div>
+                                    </div>
+                                    <!-- Priority Badge -->
+                                    <template x-if="item.isPriority">
+                                        <div class="flex-shrink-0 px-1.5 py-0.5 priority-badge text-xs font-bold rounded-full">
+                                            <i class="fas fa-crown mr-0.5"></i>PRIO
+                                        </div>
+                                    </template>
+                                </div>
+                                
+                                <div class="mobile-queue-meta">
+                                    <span class="mobile-meta-item" x-text="'#' + (index + 1)"></span>
+                                    <span class="mobile-meta-item" x-text="formatTime(item.time, true)"></span>
+                                    <template x-if="item.addedByAdmin">
+                                        <span class="mobile-meta-item text-green-400">
+                                            <i class="fas fa-user-shield mr-0.5"></i>Admin
+                                        </span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Actions Mobile -->
+                        <div class="mobile-queue-actions">
+                            <div class="text-xs text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center">
+                                <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
+                            </div>
+                            
+                            <div class="mobile-action-buttons">
+                                <!-- Tombol Pindah Posisi (hanya admin) -->
+                                <template x-if="isAdmin">
+                                    <div class="flex gap-1">
+                                        <button @click="moveRequestUp(item.id, index)"
+                                                :disabled="index === 0"
+                                                class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                                                title="Pindah ke atas">
+                                            <i class="fas fa-arrow-up text-xs"></i>
+                                        </button>
+                                        <button @click="moveRequestDown(item.id, index)"
+                                                :disabled="index === queue.length - 1"
+                                                class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+                                                title="Pindah ke bawah">
+                                            <i class="fas fa-arrow-down text-xs"></i>
+                                        </button>
+                                    </div>
+                                </template>
+                                
+                                <template x-if="isAdmin">
+                                    <button @click="removeRequest(item.id)"
+                                            class="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
+                                            title="Hapus request">
+                                        <i class="fas fa-times text-xs"></i>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
         </div>
 
         <!-- Stats Panel -->
-        <div class="mt-8 glass-effect rounded-2xl p-6">
-            <h2 class="text-xl font-bold text-white mb-6">
+        <div class="mt-6 md:mt-8 glass-effect rounded-2xl p-4 md:p-6">
+            <h2 class="text-lg md:text-xl font-bold text-white mb-4 md:mb-6">
                 <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik Sistem
             </h2>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
-                    <div class="text-4xl font-bold mb-2" x-text="queue.length"></div>
-                    <div class="text-sm text-gray-400">Dalam Antrian</div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 stats-grid-mobile">
+                <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl">
+                    <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="queue.length"></div>
+                    <div class="text-xs md:text-sm text-gray-400">Dalam Antrian</div>
                     <div class="text-xs text-gray-500 mt-1" x-text="'Max: ' + queueLimit"></div>
                 </div>
                 
-                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
-                    <div class="text-4xl font-bold mb-2" x-text="stats.totalSongs || 0"></div>
-                    <div class="text-sm text-gray-400">Total Diputar</div>
+                <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl">
+                    <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="stats.totalSongs || 0"></div>
+                    <div class="text-xs md:text-sm text-gray-400">Total Diputar</div>
                     <div class="text-xs text-gray-500 mt-1">Sepanjang waktu</div>
                 </div>
                 
-                <div class="flex flex-col items-center justify-center p-6 bg-gray-800/50 rounded-xl">
-                    <div class="text-4xl font-bold mb-2" x-text="stats.totalTime || '0'"></div>
-                    <div class="text-sm text-gray-400">Total Menit</div>
+                <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl col-span-2 md:col-span-1">
+                    <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="stats.totalTime || '0'"></div>
+                    <div class="text-xs md:text-sm text-gray-400">Total Menit</div>
                     <div class="text-xs text-gray-500 mt-1">Waktu pemutaran</div>
                 </div>
             </div>
-            
-           
         </div>
 
         <!-- Footer -->
-        <footer class="mt-12 pt-8 border-t border-gray-800 text-center text-gray-500 text-sm">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-                <div class="flex flex-wrap items-center gap-3">
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
+        <footer class="mt-8 md:mt-12 pt-6 md:pt-8 border-t border-gray-800 text-center text-gray-500 text-xs md:text-sm footer-mobile">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-3 md:gap-4">
+                <div class="flex flex-wrap items-center gap-2 md:gap-3 justify-center">
+                    <div class="flex items-center gap-1 md:gap-2">
+                        <div class="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
                         <span>Server: <span :class="isConnected ? 'text-green-400' : 'text-red-400'">
                             <span x-text="isConnected ? 'Online' : 'Offline'"></span>
                         </span></span>
@@ -606,11 +786,9 @@
                     <div><span x-text="isAdmin ? 'Admin Mode' : 'User Mode'" :class="isAdmin ? 'text-green-400' : ''"></span></div>
                 </div>
                 
-                <div class="flex flex-wrap items-center gap-2 justify-center">
+                <div class="flex flex-wrap items-center gap-1 md:gap-2 justify-center">
                     <div class="text-xs text-gray-600">Auto-refresh: <span class="text-green-400">Aktif</span></div>
-                    <div class="text-xs text-gray-600">•</div>
-                    <div class="text-xs text-gray-600">Official tag: <span class="text-blue-400">Aktif</span></div>
-                    <div class="text-xs text-gray-600">•</div>
+                    <div class="text-xs text-gray-600 hidden md:block">•</div>
                     <div class="text-xs text-gray-600">Priority: <span x-text="isAdmin ? 'Tersedia' : 'Admin only'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
                 </div>
             </div>
@@ -625,8 +803,8 @@
              x-transition:leave-start="opacity-100"
              x-transition:leave-end="opacity-0"
              class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
-            <div class="bg-gray-800 rounded-2xl p-6 w-full max-w-md" @click.away="showAdminLogin = false">
-                <h2 class="text-2xl font-bold mb-4">Admin</h2>
+            <div class="bg-gray-800 rounded-2xl p-5 md:p-6 w-full max-w-md mx-4" @click.away="showAdminLogin = false">
+                <h2 class="text-xl md:text-2xl font-bold mb-4">Admin</h2>
                 <div class="space-y-4">
                     <div>
                         <input x-model="adminPassword" type="password" 
@@ -634,13 +812,13 @@
                                @keydown.enter="adminLogin()"
                                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors">
                     </div>
-                    <div class="flex justify-end gap-4">
+                    <div class="flex justify-end gap-3 md:gap-4">
                         <button @click="showAdminLogin = false" 
-                                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                                class="px-3 py-2 md:px-4 md:py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
                             Batal
                         </button>
                         <button @click="adminLogin()"
-                                class="px-4 py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 rounded-lg transition-colors">
+                                class="px-3 py-2 md:px-4 md:py-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 rounded-lg transition-colors">
                             Login
                         </button>
                     </div>
@@ -656,21 +834,21 @@
              x-transition:leave="transition ease-in duration-200"
              x-transition:leave-start="opacity-100"
              x-transition:leave-end="opacity-0"
-             class="fixed bottom-4 right-4 px-6 py-3 rounded-lg font-medium text-white z-50 shadow-xl"
+             class="fixed bottom-4 right-4 px-4 py-2 md:px-6 md:py-3 rounded-lg font-medium text-white z-50 shadow-xl max-w-[90%]"
              :class="toast.type === 'success' ? 'bg-green-600' : 
                      toast.type === 'error' ? 'bg-red-600' : 
                      toast.type === 'warning' ? 'bg-yellow-600' : 'bg-blue-600'">
             <i class="fas" :class="toast.type === 'success' ? 'fa-check-circle' : 
                                    toast.type === 'error' ? 'fa-exclamation-circle' : 
                                    toast.type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle'"></i>
-            <span class="ml-2" x-text="toast.message"></span>
+            <span class="ml-2 text-sm md:text-base" x-text="toast.message"></span>
         </div>
 
         <!-- Loading Overlay -->
         <div x-show="isLoading" class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
             <div class="text-center">
-                <div class="w-16 h-16 border-4 border-t-red-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto"></div>
-                <p class="mt-4 text-white">Memuat data...</p>
+                <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-t-red-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto"></div>
+                <p class="mt-3 md:mt-4 text-white text-sm md:text-base">Memuat data...</p>
             </div>
         </div>
     </div>
@@ -1325,7 +1503,7 @@
                     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
                 },
                 
-                formatTime(timestamp) {
+                formatTime(timestamp, mobile = false) {
                     if (!timestamp) return '';
                     const date = new Date(timestamp);
                     const now = new Date();
@@ -1334,13 +1512,23 @@
                     if (diff < 60000) return 'Baru saja';
                     
                     if (date.toDateString() === now.toDateString()) {
+                        if (mobile) {
+                            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        }
                         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     }
                     
                     const yesterday = new Date(now);
                     yesterday.setDate(yesterday.getDate() - 1);
                     if (date.toDateString() === yesterday.toDateString()) {
+                        if (mobile) {
+                            return 'Kemarin';
+                        }
                         return 'Kemarin ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    }
+                    
+                    if (mobile) {
+                        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
                     }
                     
                     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1401,3 +1589,4 @@
     </script>
 </body>
 </html>
+[file content end]
