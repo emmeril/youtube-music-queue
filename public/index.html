@@ -544,7 +544,7 @@
                          :class="queue.length >= queueLimit ? 'bg-red-900/30 text-red-400' : 
                                  queue.length >= queueLimit * 0.8 ? 'bg-yellow-900/30 text-yellow-400' : 
                                  'bg-green-900/30 text-green-400'">
-                        <span x-text="queue.length >= queueLimit ? 'Penuh' : 
+                        <span class="text-xs" x-text="queue.length >= queueLimit ? 'Penuh' : 
                                      queue.length >= queueLimit * 0.8 ? 'Hampir Penuh' : 
                                      'Normal'"></span>
                     </div>
