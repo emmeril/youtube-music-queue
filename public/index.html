@@ -141,6 +141,13 @@
                 max-height: 1.5em;
             }
         }
+        /* Official badge */
+        .official-badge {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -216,7 +223,7 @@
                         </h1>
                         <span class="version-badge text-xs px-2 py-1 rounded-full" x-text="'v' + appVersion"></span>
                     </div>
-                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu) • Auto-Refresh Active</p>
+                    <p class="text-gray-400 mt-2">Sistem Request Music (Max 100 Lagu) • Auto-Refresh Active • Auto "Official" Tag</p>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg">
@@ -244,7 +251,6 @@
                             <div class="text-sm text-green-400 px-3 py-1 admin-badge rounded-lg">
                                 <i class="fas fa-user-shield mr-1"></i>
                                 <span class="hidden md:inline">Admin Mode</span>
-                                <!-- <span class="text-xs text-green-300 ml-1" x-text="formatAdminTimeLeft()"></span> -->
                             </div>
                             <button @click="adminLogout()" 
                                     class="px-3 py-1 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
@@ -350,6 +356,8 @@
                             </label>
                         </div>
                         
+                     
+                        
                         <!-- Judul Lagu -->
                         <div>
                             <label class="block text-sm font-medium text-gray-400 mb-2">
@@ -358,10 +366,14 @@
                             <input x-model="newRequest.title" 
                                    @keydown.enter="addRequest()"
                                    placeholder="Contoh: Bad Liar"
+                                   maxlength="100"
                                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
                                    :class="showTitleError ? 'input-error border-red-500' : ''">
                             <div x-show="showTitleError" class="mt-1 text-sm text-red-400">
-                                <i class="fas fa-exclamation-circle mr-1"></i>Judul lagu wajib diisi
+                                <i class="fas fa-exclamation-circle mr-1"></i><span x-text="titleError"></span>
+                            </div>
+                            <div class="mt-1 text-xs text-gray-500">
+                                Minimal 2 karakter, maksimal 100 karakter
                             </div>
                         </div>
                         
@@ -373,13 +385,16 @@
                             <input x-model="newRequest.artist" 
                                    @keydown.enter="addRequest()"
                                    placeholder="Contoh: Imagine Dragons"
+                                   maxlength="100"
                                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors"
                                    :class="showArtistError ? 'input-error border-red-500' : ''">
                             <div x-show="showArtistError" class="mt-1 text-sm text-red-400">
-                                <i class="fas fa-exclamation-circle mr-1"></i>Nama artis wajib diisi
+                                <i class="fas fa-exclamation-circle mr-1"></i><span x-text="artistError"></span>
+                            </div>
+                            <div class="mt-1 text-xs text-gray-500">
+                                Minimal 2 karakter, maksimal 100 karakter
                             </div>
                         </div>
-                        
                        
                         <!-- Queue Status -->
                         <div class="bg-gray-800/50 p-3 rounded-lg">
@@ -405,8 +420,6 @@
                                 <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian')"></span>
                             </button>
                         </div>
-                        
-                       
                     </div>
                 </div>
             </div>
@@ -479,7 +492,14 @@
                                 <div class="flex-1 min-w-0">
                                     <div class="flex items-start gap-2 mb-1">
                                         <div class="tooltip flex-1 min-w-0">
-                                            <div class="font-bold text-lg song-title" x-text="item.query"></div>
+                                            <div class="font-bold text-lg song-title flex items-center gap-2">
+                                                <span x-text="item.query"></span>
+                                                <!-- Official Badge -->
+                                                <!-- <span class="official-badge text-white font-medium" 
+                                                      x-show="item.query.toLowerCase().includes('official')">
+                                                    OFFICIAL
+                                                </span> -->
+                                            </div>
                                             <div class="tooltip-text" x-text="item.query"></div>
                                         </div>
                                         <!-- Priority Badge -->
@@ -564,6 +584,8 @@
                     <div class="text-xs text-gray-500 mt-1">Waktu pemutaran</div>
                 </div>
             </div>
+            
+           
         </div>
 
         <!-- Footer -->
@@ -586,6 +608,8 @@
                 
                 <div class="flex flex-wrap items-center gap-2 justify-center">
                     <div class="text-xs text-gray-600">Auto-refresh: <span class="text-green-400">Aktif</span></div>
+                    <div class="text-xs text-gray-600">•</div>
+                    <div class="text-xs text-gray-600">Official tag: <span class="text-blue-400">Aktif</span></div>
                     <div class="text-xs text-gray-600">•</div>
                     <div class="text-xs text-gray-600">Priority: <span x-text="isAdmin ? 'Tersedia' : 'Admin only'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
                 </div>
@@ -686,6 +710,8 @@
                 priorityRequest: false,
                 showTitleError: false,
                 showArtistError: false,
+                titleError: '',
+                artistError: '',
                 isConnected: false,
                 isLoading: false,
                 isRefreshing: false,
@@ -790,33 +816,113 @@
                     }
                 },
                 
-                // Add new request
-                async addRequest() {
+                // Validasi input di frontend
+                validateInput() {
                     // Reset error states
                     this.showTitleError = false;
                     this.showArtistError = false;
+                    this.titleError = '';
+                    this.artistError = '';
                     
-                    // Validasi input
-                    let hasError = false;
+                    // Trim input
+                    const title = this.newRequest.title.trim();
+                    const artist = this.newRequest.artist.trim();
                     
-                    if (!this.newRequest.title.trim()) {
+                    let isValid = true;
+                    
+                    // Validasi 1: Input tidak boleh kosong
+                    if (!title) {
                         this.showTitleError = true;
-                        hasError = true;
+                        this.titleError = 'Judul lagu wajib diisi';
+                        isValid = false;
                     }
                     
-                    if (!this.newRequest.artist.trim()) {
+                    if (!artist) {
                         this.showArtistError = true;
-                        hasError = true;
+                        this.artistError = 'Nama artis wajib diisi';
+                        isValid = false;
                     }
                     
-                    if (hasError) {
-                        this.showToast('Harap isi judul lagu dan nama artis', 'error');
+                    // Validasi 2: Panjang minimum
+                    if (title && title.length < 2) {
+                        this.showTitleError = true;
+                        this.titleError = 'Judul lagu minimal 2 karakter';
+                        isValid = false;
+                    }
+                    
+                    if (artist && artist.length < 2) {
+                        this.showArtistError = true;
+                        this.artistError = 'Nama artis minimal 2 karakter';
+                        isValid = false;
+                    }
+                    
+                    // Validasi 3: Panjang maksimum
+                    if (title && title.length > 100) {
+                        this.showTitleError = true;
+                        this.titleError = 'Judul lagu maksimal 100 karakter';
+                        isValid = false;
+                    }
+                    
+                    if (artist && artist.length > 100) {
+                        this.showArtistError = true;
+                        this.artistError = 'Nama artis maksimal 100 karakter';
+                        isValid = false;
+                    }
+                    
+                    // Validasi 4: Format karakter
+                    const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
+                    
+                    if (title && !validCharsRegex.test(title)) {
+                        this.showTitleError = true;
+                        this.titleError = 'Judul lagu mengandung karakter tidak valid';
+                        isValid = false;
+                    }
+                    
+                    if (artist && !validCharsRegex.test(artist)) {
+                        this.showArtistError = true;
+                        this.artistError = 'Nama artis mengandung karakter tidak valid';
+                        isValid = false;
+                    }
+                    
+                    // Validasi 5: Cek input yang sama berulang
+                    if (title && artist && title.toLowerCase() === artist.toLowerCase()) {
+                        this.showTitleError = true;
+                        this.showArtistError = true;
+                        this.titleError = 'Judul dan artis tidak boleh sama';
+                        this.artistError = 'Judul dan artis tidak boleh sama';
+                        isValid = false;
+                    }
+                    
+                    // Validasi 6: Cek apakah judul hanya berisi angka
+                    if (title && /^\d+$/.test(title)) {
+                        this.showTitleError = true;
+                        this.titleError = 'Judul lagu tidak boleh hanya angka';
+                        isValid = false;
+                    }
+                    
+                    return isValid;
+                },
+                
+                // Fungsi untuk menambahkan "official" ke judul jika belum ada
+                prepareQuery(title, artist) {
+                    let judul = title.trim();
+                    const kataOfficial = "official";
+                    
+                    // Cek apakah judul sudah mengandung kata "official" (case insensitive)
+                    if (!judul.toLowerCase().includes(kataOfficial)) {
+                        judul = judul + ' ' + kataOfficial;
+                    }
+                    
+                    return `${judul} - ${artist.trim()}`;
+                },
+                
+                // Add new request
+                async addRequest() {
+                    // Validasi input
+                    if (!this.validateInput()) {
                         return;
                     }
                     
-                    // Gabungkan judul dan artis menjadi satu query
-                    const combinedQuery = `${this.newRequest.title.trim()} official - ${this.newRequest.artist.trim()}`;
-
                     // Cek batas antrian lokal
                     if (this.queue.length >= this.queueLimit) {
                         this.showToast(`Antrian penuh (maksimal ${this.queueLimit} lagu). Tunggu hingga beberapa lagu selesai.`, 'warning');
@@ -826,6 +932,9 @@
                     this.isLoading = true;
                     
                     try {
+                        // Gabungkan judul dan artis menjadi satu query dengan menambahkan "official" jika perlu
+                        const combinedQuery = this.prepareQuery(this.newRequest.title, this.newRequest.artist);
+                        
                         // Jika admin dan priority request, gunakan endpoint khusus
                         let endpoint = '/request-song';
                         let method = 'POST';
@@ -994,6 +1103,70 @@
                     }
                 },
                 
+                // Move request up
+                async moveRequestUp(requestId, currentIndex) {
+                    if (!this.isAdmin) return;
+                    
+                    const newPosition = currentIndex;
+                    
+                    try {
+                        const response = await fetch('/admin/move-request', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-admin-token': this.adminToken 
+                            },
+                            body: JSON.stringify({ 
+                                requestId, 
+                                newPosition 
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok) {
+                            await this.loadData();
+                            this.showToast(result.message, 'success');
+                        } else {
+                            this.showToast(result.error, 'error');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+                
+                // Move request down
+                async moveRequestDown(requestId, currentIndex) {
+                    if (!this.isAdmin) return;
+                    
+                    const newPosition = currentIndex + 2;
+                    
+                    try {
+                        const response = await fetch('/admin/move-request', {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/json',
+                                'x-admin-token': this.adminToken 
+                            },
+                            body: JSON.stringify({ 
+                                requestId, 
+                                newPosition 
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok) {
+                            await this.loadData();
+                            this.showToast(result.message, 'success');
+                        } else {
+                            this.showToast(result.error, 'error');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+                
                 // Refresh all data
                 async refreshAll() {
                     this.isRefreshing = true;
@@ -1141,80 +1314,6 @@
                     } catch (error) {
                         console.error('Version check error:', error);
                     }
-                },
-                
-                async moveRequestUp(requestId, currentIndex) {
-                    if (!this.isAdmin) return;
-                    
-                    const newPosition = currentIndex;
-                    
-                    try {
-                        const response = await fetch('/admin/move-request', {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'x-admin-token': this.adminToken 
-                            },
-                            body: JSON.stringify({ 
-                                requestId, 
-                                newPosition 
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
-                            await this.loadData();
-                            this.showToast(result.message, 'success');
-                        } else {
-                            this.showToast(result.error, 'error');
-                        }
-                    } catch (error) {
-                        this.showToast('Gagal memindahkan request', 'error');
-                    }
-                },
-                
-                async moveRequestDown(requestId, currentIndex) {
-                    if (!this.isAdmin) return;
-                    
-                    const newPosition = currentIndex + 2;
-                    
-                    try {
-                        const response = await fetch('/admin/move-request', {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'x-admin-token': this.adminToken 
-                            },
-                            body: JSON.stringify({ 
-                                requestId, 
-                                newPosition 
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
-                            await this.loadData();
-                            this.showToast(result.message, 'success');
-                        } else {
-                            this.showToast(result.error, 'error');
-                        }
-                    } catch (error) {
-                        this.showToast('Gagal memindahkan request', 'error');
-                    }
-                },
-                
-                formatAdminTimeLeft() {
-                    if (!this.adminSessionExpires) return '';
-                    
-                    const remaining = this.adminSessionExpires - Date.now();
-                    if (remaining <= 0) return 'Expired';
-                    
-                    const hours = Math.floor(remaining / (1000 * 60 * 60));
-                    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-                    
-                    return `${hours}h ${minutes}m`;
                 },
                 
                 // Format helpers

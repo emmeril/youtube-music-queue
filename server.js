@@ -11,7 +11,7 @@ const PORT = 4786;
 const QUEUE_LIMIT = 100;
 
 // Konstanta admin
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 let adminSession = null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 
@@ -256,6 +256,105 @@ function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
   return confidence;
 }
 
+// ================= VALIDASI INPUT =================
+function sanitizeInput(text) {
+  if (!text) return '';
+  // Hapus whitespace berlebihan
+  text = text.trim().replace(/\s+/g, ' ');
+  // Escape karakter berbahaya untuk mencegah XSS
+  return text.replace(/[<>{}]/g, '');
+}
+
+function validateSongRequest(query) {
+  const errors = [];
+  
+  if (!query || query.trim() === '') {
+    errors.push('Query tidak boleh kosong');
+    return { isValid: false, errors };
+  }
+  
+  if (query.length > 200) {
+    errors.push('Query terlalu panjang (maksimal 200 karakter)');
+  }
+  
+  const dangerousPattern = /[<>{}]/;
+  if (dangerousPattern.test(query)) {
+    errors.push('Query mengandung karakter yang tidak diperbolehkan');
+  }
+  
+  const queryParts = query.split('-').map(part => part.trim());
+  if (queryParts.length < 2) {
+    errors.push('Format harus: Judul Lagu - Nama Artis');
+  }
+  
+  if (queryParts[0] && queryParts[0].length < 2) {
+    errors.push('Judul lagu minimal 2 karakter');
+  }
+  
+  if (queryParts[1] && queryParts[1].length < 2) {
+    errors.push('Nama artis minimal 2 karakter');
+  }
+  
+  if (queryParts[0] && queryParts[0].length > 100) {
+    errors.push('Judul lagu maksimal 100 karakter');
+  }
+  
+  if (queryParts[1] && queryParts[1].length > 100) {
+    errors.push('Nama artis maksimal 100 karakter');
+  }
+  
+  // Cek jika judul hanya berisi angka
+  if (queryParts[0] && /^\d+$/.test(queryParts[0])) {
+    errors.push('Judul lagu tidak boleh hanya angka');
+  }
+  
+  // Cek karakter valid
+  const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
+  if (queryParts[0] && !validCharsRegex.test(queryParts[0])) {
+    errors.push('Judul lagu mengandung karakter tidak valid');
+  }
+  
+  if (queryParts[1] && !validCharsRegex.test(queryParts[1])) {
+    errors.push('Nama artis mengandung karakter tidak valid');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+    title: queryParts[0] || '',
+    artist: queryParts.slice(1).join('-') || ''
+  };
+}
+
+// ================= FUNGSI TAMBAHAN "OFFICIAL" =================
+function addOfficialToTitle(query) {
+  try {
+    // Split query menjadi bagian judul dan artis
+    const parts = query.split('-').map(part => part.trim());
+    
+    if (parts.length < 2) {
+      // Jika tidak ada pemisah, return query asli dengan tambahan official
+      return query + ' official';
+    }
+    
+    const title = parts[0];
+    const artist = parts.slice(1).join('-');
+    
+    // Cek apakah judul sudah mengandung "official" (case insensitive)
+    const lowerTitle = title.toLowerCase();
+    if (!lowerTitle.includes('official')) {
+      // Tambahkan "official" ke judul
+      return `${title} official - ${artist}`;
+    }
+    
+    // Jika sudah ada "official", return query asli
+    return query;
+  } catch (error) {
+    console.error('Error in addOfficialToTitle:', error);
+    return query;
+  }
+}
+
 // ================= API ENDPOINTS =================
 
 // 1. ADMIN LOGIN
@@ -472,7 +571,7 @@ app.get('/get-request', (req, res) => {
   });
 });
 
-// 7. ADD NEW REQUEST (Dengan validasi format)
+// 7. ADD NEW REQUEST (Dengan validasi format dan tambahan "official")
 app.post('/request-song', (req, res) => {
   try {
     const { query } = req.body;
@@ -481,13 +580,17 @@ app.post('/request-song', (req, res) => {
       return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
-    // Validasi format: harus mengandung tanda pemisah
-    const queryParts = query.split('-').map(part => part.trim());
-    
-    if (queryParts.length < 2) {
-      console.log(`⚠️ Query tanpa pemisah: "${query}"`);
-      // Tetap diterima, tapi beri warning di log
+    // Validasi input menggunakan fungsi validasi
+    const validation = validateSongRequest(query);
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        error: validation.errors[0],
+        details: validation.errors 
+      });
     }
+    
+    // TAMBAHKAN "OFFICIAL" KE JUDUL LAGU
+    const queryWithOfficial = addOfficialToTitle(query);
     
     // CEK BATAS ANTRIAN (100 LAGU)
     if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -498,38 +601,63 @@ app.post('/request-song', (req, res) => {
       });
     }
     
-    // Cek duplikat di queue
+    // Cek duplikat di queue (dengan query yang sudah ditambahi official)
     const isDuplicate = state.requestQueue.some(req => 
-      req.query.toLowerCase() === query.toLowerCase()
+      req.query.toLowerCase() === queryWithOfficial.toLowerCase()
     );
     
     if (isDuplicate) {
       return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
     }
     
-    // Buat request baru
+    // Cek juga dengan active request
+    if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
+      return res.status(409).json({ error: 'Lagu sedang diputar' });
+    }
+    
+    // Cek history terbaru (10 menit terakhir) untuk mencegah spam
+    const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+    const recentDuplicate = state.history.some(item => 
+      item.request && 
+      item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() &&
+      item.timestamp > tenMinutesAgo
+    );
+    
+    if (recentDuplicate) {
+      return res.status(429).json({ 
+        error: 'Lagu ini baru saja diputar. Tunggu 10 menit sebelum request lagi.',
+        cooldown: '10 menit'
+      });
+    }
+    
+    // Parse ulang query yang sudah ditambahi official
+    const officialQueryParts = queryWithOfficial.split('-').map(part => part.trim());
+    
+    // Buat request baru dengan query yang sudah ditambahi official
     const newRequest = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-      query: query.trim(),
+      query: queryWithOfficial,
       time: Date.now(),
       status: 'pending',
       addedBy: req.ip || 'unknown',
       // Parse judul dan artis jika ada pemisah
-      title: queryParts[0] || query,
-      artist: queryParts[1] || 'Unknown Artist'
+      title: officialQueryParts[0] || queryWithOfficial,
+      artist: officialQueryParts[1] || 'Unknown Artist',
+      userAgent: req.headers['user-agent'] || 'unknown',
+      originalQuery: query // Simpan query asli untuk referensi
     };
     
     // Tambahkan ke queue
     state.requestQueue.push(newRequest);
     saveRequests();
     
-    console.log(`📝 Request added: "${query}"`);
-    console.log(`📝 Parsed as: Title="${queryParts[0] || query}", Artist="${queryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📝 Request added: "${query}" → "${queryWithOfficial}"`);
+    console.log(`📝 Validated as: Title="${officialQueryParts[0] || queryWithOfficial}", Artist="${officialQueryParts[1] || 'Unknown Artist'}"`);
     console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
     
     // Jika tidak ada request aktif, set ini sebagai berikutnya
     if (!state.activeRequest && state.requestLockUntil === 0) {
-      console.log(`🎯 No active request, "${query}" will be played next`);
+      console.log(`🎯 No active request, "${queryWithOfficial}" will be played next`);
     }
     
     res.json({
@@ -896,13 +1024,17 @@ app.post('/admin/request-first', requireAdmin, (req, res) => {
       return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
 
-    // Validasi format: harus mengandung tanda pemisah
-    const queryParts = query.split('-').map(part => part.trim());
-    
-    if (queryParts.length < 2) {
-      console.log(`⚠️ Query tanpa pemisah: "${query}"`);
-      // Tetap diterima, tapi beri warning di log
+    // Validasi input menggunakan fungsi validasi
+    const validation = validateSongRequest(query);
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        error: validation.errors[0],
+        details: validation.errors 
+      });
     }
+
+    // TAMBAHKAN "OFFICIAL" KE JUDUL LAGU
+    const queryWithOfficial = addOfficialToTitle(query);
 
     // CEK BATAS ANTRIAN (100 LAGU)
     if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -915,32 +1047,42 @@ app.post('/admin/request-first', requireAdmin, (req, res) => {
 
     // Cek duplikat di queue
     const isDuplicate = state.requestQueue.some(req => 
-      req.query.toLowerCase() === query.toLowerCase()
+      req.query.toLowerCase() === queryWithOfficial.toLowerCase()
     );
 
     if (isDuplicate) {
       return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
     }
+    
+    // Cek juga dengan active request
+    if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
+      return res.status(409).json({ error: 'Lagu sedang diputar' });
+    }
+
+    // Parse ulang query yang sudah ditambahi official
+    const officialQueryParts = queryWithOfficial.split('-').map(part => part.trim());
 
     // Buat request baru dengan flag priority
     const newRequest = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-      query: query.trim(),
+      query: queryWithOfficial,
       time: Date.now(),
       status: 'pending',
       addedBy: req.ip || 'unknown',
-      title: queryParts[0] || query,
-      artist: queryParts[1] || 'Unknown Artist',
+      title: officialQueryParts[0] || queryWithOfficial,
+      artist: officialQueryParts[1] || 'Unknown Artist',
       isPriority: true,
-      addedByAdmin: true
+      addedByAdmin: true,
+      userAgent: req.headers['user-agent'] || 'unknown',
+      originalQuery: query // Simpan query asli untuk referensi
     };
 
     // Tambahkan ke awal queue (posisi pertama)
     state.requestQueue.unshift(newRequest);
     saveRequests();
 
-    console.log(`📝 Priority request added (first position): "${query}"`);
-    console.log(`📝 Parsed as: Title="${queryParts[0] || query}", Artist="${queryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📝 Priority request added (first position): "${query}" → "${queryWithOfficial}"`);
+    console.log(`📝 Validated as: Title="${officialQueryParts[0] || queryWithOfficial}", Artist="${officialQueryParts[1] || 'Unknown Artist'}"`);
     console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
 
     res.json({
@@ -964,7 +1106,7 @@ app.get('/version', (req, res) => {
   res.json({
     version: '2.3.0',
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'admin-priority-request', 'auto-refresh'],
+    features: ['queue-limit-100', 'admin-priority-request', 'auto-refresh', 'official-tag-automatic'],
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
     activeUsers: Object.keys(adminSession || {}).length > 0 ? 1 : 0
@@ -1042,6 +1184,7 @@ app.listen(PORT, () => {
   console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
   console.log(`🔄 Auto-refresh: Enabled`);
   console.log(`👑 Priority requests: Admin only`);
+  console.log(`🏷️  Auto "official" tag: Enabled`);
   console.log("=".repeat(50));
   
   // Log lock status jika ada
