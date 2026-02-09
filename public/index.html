@@ -540,11 +540,11 @@
                     </h2>
                     
                     <!-- Queue Status Badge -->
-                    <div class="text-xs md:text-sm px-2 py-1 md:px-3 md:py-1 rounded-full" 
-                         :class="queue.length >= queueLimit ? 'bg-red-900/30 text-red-400' : 
-                                 queue.length >= queueLimit * 0.8 ? 'bg-yellow-900/30 text-yellow-400' : 
+                    <div class="text-xs text-center md:text-sm px-2 py-1 md:px-3 md:py-1 rounded-full" 
+                         :class="queue.length >= queueLimit ? 'text-center bg-red-900/30 text-red-400' : 
+                                 queue.length >= queueLimit * 0.8 ? 'text-center bg-yellow-900/30 text-yellow-400' : 
                                  'bg-green-900/30 text-green-400'">
-                        <span class="text-xs" x-text="queue.length >= queueLimit ? 'Penuh' : 
+                        <span x-text="queue.length >= queueLimit ? 'Penuh' : 
                                      queue.length >= queueLimit * 0.8 ? 'Hampir Penuh' : 
                                      'Normal'"></span>
                     </div>
