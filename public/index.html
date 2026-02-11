@@ -40,8 +40,11 @@
             background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
             transition: width 0.3s ease;
         }
+        .super-admin-badge {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
         .admin-badge {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
         }
         .priority-badge {
             background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
@@ -202,7 +205,7 @@
         }
         /* Official badge */
         .official-badge {
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             font-size: 0.7rem;
             padding: 2px 6px;
             border-radius: 4px;
@@ -340,10 +343,6 @@
                             <span x-text="isConnected ? 'Connected' : 'Disconnected'"></span>
                         </span>
                     </div>
-                    <!-- <button @click="refreshAll()" class="px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors">
-                        <i class="fas fa-sync-alt" :class="isRefreshing ? 'animate-spin' : ''"></i>
-                        <span class="ml-2 hidden md:inline">Refresh</span>
-                    </button> -->
                     
                     <!-- Tombol Admin -->
                     <template x-if="!isAdmin">
@@ -356,9 +355,10 @@
 
                     <template x-if="isAdmin">
                         <div class="flex items-center gap-2">
-                            <div class="text-xs md:text-sm text-green-400 px-2 py-1 md:px-3 md:py-1 admin-badge rounded-lg">
+                            <div class="text-xs md:text-sm px-2 py-1 md:px-3 md:py-1 rounded-lg" 
+                                 :class="adminRole === 'super' ? 'super-admin-badge text-white' : 'admin-badge text-white'">
                                 <i class="fas fa-user-shield mr-1"></i>
-                                <span class="hidden md:inline">Admin Mode</span>
+                                <span class="hidden md:inline" x-text="adminRole === 'super' ? 'Super Admin' : 'Admin'"></span>
                             </div>
                             <button @click="adminLogout()" 
                                     class="px-2 py-1 md:px-3 md:py-1 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
@@ -433,8 +433,8 @@
                         </div>
                     </div>
 
-                    <!-- Admin Controls -->
-                    <div class="mt-4 md:mt-6 flex gap-2" x-show="isAdmin">
+                    <!-- Admin Controls (Hanya Super Admin) -->
+                    <div class="mt-4 md:mt-6 flex gap-2" x-show="isAdmin && adminRole === 'super'">
                         <button @click="skipCurrent()"
                                 class="px-3 py-1.5 md:px-4 md:py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-sm">
                             <i class="fas fa-forward mr-1 md:mr-2"></i>Skip
@@ -455,7 +455,7 @@
                     </h2>
                     
                     <div class="space-y-3 md:space-y-4">
-                        <!-- Priority Request Checkbox (Admin only) -->
+                        <!-- Priority Request Checkbox (Admin & Super Admin) -->
                         <div x-show="isAdmin" class="flex items-center gap-2 mb-2 md:mb-3">
                             <input type="checkbox" x-model="priorityRequest" id="priority" class="w-4 h-4 text-yellow-600 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
                             <label for="priority" class="text-xs md:text-sm text-yellow-400">
@@ -551,8 +551,9 @@
                 </div>
                 
                 <div class="flex gap-2 mt-2 md:mt-0">
+                    <!-- Tombol Clear All (Hanya Super Admin) -->
                     <button @click="clearQueue()" 
-                            x-show="isAdmin && queue.length > 0"
+                            x-show="isAdmin && adminRole === 'super' && queue.length > 0"
                             class="px-3 py-1.5 md:px-4 md:py-2 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
                         <i class="fas fa-trash mr-1 md:mr-2"></i>Hapus Semua
                     </button>
@@ -623,7 +624,7 @@
                             
                             <!-- Actions -->
                             <div class="flex items-center gap-2 flex-shrink-0 ml-4">
-                                <!-- Tombol Pindah Posisi (hanya admin) -->
+                                <!-- Tombol Pindah Posisi (Admin & Super Admin) -->
                                 <template x-if="isAdmin">
                                     <div class="flex flex-col gap-1">
                                         <button @click="moveRequestUp(item.id, index)"
@@ -645,6 +646,7 @@
                                     <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
                                 </div>
                                 
+                                <!-- Tombol Hapus (Admin & Super Admin) -->
                                 <template x-if="isAdmin">
                                     <button @click="removeRequest(item.id)"
                                             class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
@@ -707,7 +709,7 @@
                             </div>
                             
                             <div class="mobile-action-buttons">
-                                <!-- Tombol Pindah Posisi (hanya admin) -->
+                                <!-- Tombol Pindah Posisi (Admin & Super Admin) -->
                                 <template x-if="isAdmin">
                                     <div class="flex gap-1">
                                         <button @click="moveRequestUp(item.id, index)"
@@ -725,6 +727,7 @@
                                     </div>
                                 </template>
                                 
+                                <!-- Tombol Hapus (Admin & Super Admin) -->
                                 <template x-if="isAdmin">
                                     <button @click="removeRequest(item.id)"
                                             class="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
@@ -781,7 +784,8 @@
                     <div class="hidden md:block text-gray-600">•</div>
                     <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
                     <div class="hidden md:block text-gray-600">•</div>
-                    <div><span x-text="isAdmin ? 'Admin Mode' : 'User Mode'" :class="isAdmin ? 'text-green-400' : ''"></span></div>
+                    <div><span x-text="isAdmin ? (adminRole === 'super' ? 'Super Admin Mode' : 'Admin Mode') : 'User Mode'" 
+                              :class="isAdmin ? (adminRole === 'super' ? 'text-red-400' : 'text-blue-400') : ''"></span></div>
                 </div>
                 
                 <div class="flex flex-wrap items-center gap-1 md:gap-2 justify-center">
@@ -802,13 +806,17 @@
              x-transition:leave-end="opacity-0"
              class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
             <div class="bg-gray-800 rounded-2xl p-5 md:p-6 w-full max-w-md mx-4" @click.away="showAdminLogin = false">
-                <h2 class="text-xl md:text-2xl font-bold mb-4">Admin</h2>
+                <h2 class="text-xl md:text-2xl font-bold mb-4">Admin Login</h2>
                 <div class="space-y-4">
                     <div>
                         <input x-model="adminPassword" type="password" 
                                placeholder="Masukkan password admin"
                                @keydown.enter="adminLogin()"
                                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-red-500 transition-colors">
+                    </div>
+                    <div class="text-xs text-gray-400">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Masukkan password Admin atau Super Admin
                     </div>
                     <div class="flex justify-end gap-3 md:gap-4">
                         <button @click="showAdminLogin = false" 
@@ -895,6 +903,7 @@
                 
                 // Admin State
                 isAdmin: false,
+                adminRole: null, // 'super' atau 'admin'
                 adminToken: null,
                 adminSessionExpires: null,
                 showAdminLogin: false,
@@ -917,9 +926,11 @@
                     // Cek admin session dari localStorage
                     const savedToken = localStorage.getItem('adminToken');
                     const savedExpires = localStorage.getItem('adminExpires');
+                    const savedRole = localStorage.getItem('adminRole');
                     
                     if (savedToken && savedExpires && Date.now() < parseInt(savedExpires)) {
                         this.adminToken = savedToken;
+                        this.adminRole = savedRole;
                         this.adminSessionExpires = parseInt(savedExpires);
                         await this.checkAdminSession();
                     }
@@ -1149,6 +1160,7 @@
                             if (response.status === 403) {
                                 this.showToast('Akses ditolak. Hanya admin yang bisa menambahkan prioritas.', 'error');
                                 this.isAdmin = false;
+                                this.adminRole = null;
                             } else {
                                 this.showToast(`Error: ${result.error}`, 'error');
                             }
@@ -1160,7 +1172,7 @@
                     }
                 },
                 
-                // Remove request
+                // Remove request (Admin & Super Admin)
                 async removeRequest(id) {
                     if (!this.isAdmin) {
                         this.showToast('Hanya admin yang bisa menghapus request', 'error');
@@ -1183,16 +1195,17 @@
                         } else if (response.status === 403) {
                             this.showToast('Akses ditolak. Hanya admin yang bisa menghapus request.', 'error');
                             this.isAdmin = false;
+                            this.adminRole = null;
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus request', 'error');
                     }
                 },
                 
-                // Skip current request
+                // Skip current request (Hanya Super Admin)
                 async skipCurrent() {
-                    if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa skip lagu', 'error');
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa skip lagu', 'error');
                         return;
                     }
                     
@@ -1210,18 +1223,19 @@
                             await this.loadData();
                             this.showToast('Request berhasil diskip', 'success');
                         } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya admin yang bisa skip.', 'error');
+                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa skip.', 'error');
                             this.isAdmin = false;
+                            this.adminRole = null;
                         }
                     } catch (error) {
                         this.showToast('Gagal skip request', 'error');
                     }
                 },
                 
-                // Force next request
+                // Force next request (Hanya Super Admin)
                 async forceNext() {
-                    if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa force next', 'error');
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa force next', 'error');
                         return;
                     }
                     
@@ -1237,18 +1251,19 @@
                             await this.loadData();
                             this.showToast('Force skip berhasil', 'success');
                         } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya admin yang bisa force next.', 'error');
+                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa force next.', 'error');
                             this.isAdmin = false;
+                            this.adminRole = null;
                         }
                     } catch (error) {
                         this.showToast('Gagal force skip', 'error');
                     }
                 },
                 
-                // Clear all requests
+                // Clear all requests (Hanya Super Admin)
                 async clearQueue() {
-                    if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa menghapus antrian', 'error');
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa menghapus semua antrian', 'error');
                         return;
                     }
                     
@@ -1271,19 +1286,23 @@
                             await this.loadData();
                             this.showToast(`Dihapus ${result.clearedCount} request`, 'success');
                         } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya admin yang bisa menghapus antrian.', 'error');
+                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus antrian.', 'error');
                             this.isAdmin = false;
+                            this.adminRole = null;
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus antrian', 'error');
                     }
                 },
                 
-                // Move request up
+                // Move request up (Admin & Super Admin)
                 async moveRequestUp(requestId, currentIndex) {
-                    if (!this.isAdmin) return;
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa memindahkan request', 'error');
+                        return;
+                    }
                     
-                    const newPosition = currentIndex;
+                    const newPosition = currentIndex; // Pindah ke posisi sebelumnya
                     
                     try {
                         const response = await fetch('/admin/move-request', {
@@ -1311,11 +1330,14 @@
                     }
                 },
                 
-                // Move request down
+                // Move request down (Admin & Super Admin)
                 async moveRequestDown(requestId, currentIndex) {
-                    if (!this.isAdmin) return;
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa memindahkan request', 'error');
+                        return;
+                    }
                     
-                    const newPosition = currentIndex + 2;
+                    const newPosition = currentIndex + 2; // Pindah ke posisi berikutnya
                     
                     try {
                         const response = await fetch('/admin/move-request', {
@@ -1387,6 +1409,7 @@
                         
                         if (response.ok) {
                             this.adminToken = result.token;
+                            this.adminRole = result.role; // Simpan role
                             this.adminSessionExpires = result.expiresAt;
                             this.isAdmin = true;
                             this.adminPassword = '';
@@ -1394,9 +1417,10 @@
                             
                             // Simpan token di localStorage
                             localStorage.setItem('adminToken', this.adminToken);
+                            localStorage.setItem('adminRole', this.adminRole);
                             localStorage.setItem('adminExpires', this.adminSessionExpires);
                             
-                            this.showToast('Login admin berhasil', 'success');
+                            this.showToast(`Login ${this.adminRole === 'super' ? 'Super Admin' : 'Admin'} berhasil`, 'success');
                             
                             // Load data dengan admin token
                             await this.loadData();
@@ -1423,10 +1447,12 @@
                         
                         this.isAdmin = false;
                         this.adminToken = null;
+                        this.adminRole = null;
                         this.adminSessionExpires = null;
                         
                         // Hapus dari localStorage
                         localStorage.removeItem('adminToken');
+                        localStorage.removeItem('adminRole');
                         localStorage.removeItem('adminExpires');
                         
                         this.showToast('Logout admin berhasil', 'info');
@@ -1452,15 +1478,19 @@
                             // Session expired
                             this.isAdmin = false;
                             this.adminToken = null;
+                            this.adminRole = null;
                             this.adminSessionExpires = null;
                             
                             localStorage.removeItem('adminToken');
+                            localStorage.removeItem('adminRole');
                             localStorage.removeItem('adminExpires');
                             
                             this.showToast('Session admin telah kadaluarsa', 'warning');
                         } else {
+                            this.adminRole = result.role; // Update role
                             this.adminSessionExpires = result.expiresAt;
                             localStorage.setItem('adminExpires', this.adminSessionExpires);
+                            localStorage.setItem('adminRole', this.adminRole);
                         }
                     } catch (error) {
                         console.error('Session check error:', error);

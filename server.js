@@ -10,7 +10,8 @@ const PORT = 4786;
 // Konstanta batas antrian
 const QUEUE_LIMIT = 100;
 
-// Konstanta admin
+// Konstanta admin dengan dua level
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 let adminSession = null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
@@ -49,6 +50,41 @@ function requireAdmin(req, res, next) {
     });
   }
   
+  // Simpan role di request untuk digunakan di endpoint
+  req.adminRole = adminSession.role;
+  
+  next();
+}
+
+// ================= MIDDLEWARE SUPER ADMIN =================
+function requireSuperAdmin(req, res, next) {
+  const sessionToken = req.headers['x-admin-token'];
+  
+  if (!sessionToken || !adminSession || adminSession.token !== sessionToken) {
+    return res.status(403).json({ 
+      error: 'Akses ditolak. Hanya admin yang bisa melakukan aksi ini.',
+      requiresAdmin: true 
+    });
+  }
+  
+  // Cek session expired
+  if (Date.now() > adminSession.expires) {
+    adminSession = null;
+    return res.status(403).json({ 
+      error: 'Session admin telah kadaluarsa. Silakan login kembali.',
+      sessionExpired: true 
+    });
+  }
+  
+  // Cek role super admin
+  if (adminSession.role !== 'super') {
+    return res.status(403).json({ 
+      error: 'Akses ditolak. Hanya Super Admin yang bisa melakukan aksi ini.',
+      requiresSuperAdmin: true 
+    });
+  }
+  
+  req.adminRole = adminSession.role;
   next();
 }
 
@@ -357,7 +393,7 @@ function addOfficialToTitle(query) {
 
 // ================= API ENDPOINTS =================
 
-// 1. ADMIN LOGIN
+// 1. ADMIN LOGIN (Multi-Level)
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   
@@ -365,27 +401,40 @@ app.post('/admin/login', (req, res) => {
     return res.status(400).json({ error: 'Password diperlukan' });
   }
   
-  if (password === ADMIN_PASSWORD) {
-    // Buat session token
-    const token = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    
-    adminSession = {
-      token,
-      expires: Date.now() + SESSION_DURATION,
-      createdAt: Date.now()
-    };
-    
-    console.log(`🔐 Admin login successful`);
-    
-    res.json({
-      success: true,
-      token,
-      expiresIn: SESSION_DURATION,
-      expiresAt: adminSession.expires
-    });
-  } else {
-    res.status(401).json({ error: 'Password salah' });
+  let role = null;
+  
+  // Cek super admin password
+  if (password === SUPER_ADMIN_PASSWORD) {
+    role = 'super';
+  } 
+  // Cek admin password
+  else if (password === ADMIN_PASSWORD) {
+    role = 'admin';
+  } 
+  // Password salah
+  else {
+    return res.status(401).json({ error: 'Password salah' });
   }
+  
+  // Buat session token
+  const token = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  
+  adminSession = {
+    token,
+    role,
+    expires: Date.now() + SESSION_DURATION,
+    createdAt: Date.now()
+  };
+  
+  console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
+  
+  res.json({
+    success: true,
+    token,
+    role,
+    expiresIn: SESSION_DURATION,
+    expiresAt: adminSession.expires
+  });
 });
 
 // 2. ADMIN LOGOUT
@@ -404,6 +453,7 @@ app.get('/admin/status', (req, res) => {
   
   res.json({
     isAdmin,
+    role: isAdmin ? adminSession.role : null,
     expiresAt: isAdmin ? adminSession.expires : null,
     remainingTime: isAdmin ? adminSession.expires - Date.now() : 0
   });
@@ -676,7 +726,7 @@ app.post('/request-song', (req, res) => {
   }
 });
 
-// 8. MOVE REQUEST POSITION (Admin only)
+// 8. MOVE REQUEST POSITION (Admin & Super Admin)
 app.post('/admin/move-request', requireAdmin, (req, res) => {
   const { requestId, newPosition } = req.body;
   
@@ -816,8 +866,8 @@ app.post('/verify-match', (req, res) => {
   res.json(matchData);
 });
 
-// 12. SKIP CURRENT REQUEST (Admin only)
-app.post('/skip-current', requireAdmin, (req, res) => {
+// 12. SKIP CURRENT REQUEST (Super Admin only)
+app.post('/skip-current', requireSuperAdmin, (req, res) => {
   console.log('⏭️ Skip current request requested');
   
   // Hapus timeout auto-unlock
@@ -847,8 +897,8 @@ app.post('/skip-current', requireAdmin, (req, res) => {
   });
 });
 
-// 13. FORCE NEXT (Admin only)
-app.post('/force-next', requireAdmin, (req, res) => {
+// 13. FORCE NEXT (Super Admin only)
+app.post('/force-next', requireSuperAdmin, (req, res) => {
   console.log('⚡ Force next requested');
   
   // Hapus timeout auto-unlock
@@ -876,7 +926,7 @@ app.post('/force-next', requireAdmin, (req, res) => {
   });
 });
 
-// 14. REMOVE SPECIFIC REQUEST (Admin only)
+// 14. REMOVE SPECIFIC REQUEST (Admin & Super Admin)
 app.delete('/remove-request/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const index = state.requestQueue.findIndex(req => req.id === id);
@@ -914,8 +964,8 @@ app.delete('/remove-request/:id', requireAdmin, (req, res) => {
   });
 });
 
-// 15. CLEAR ALL REQUESTS (Admin only)
-app.delete('/clear-requests', requireAdmin, (req, res) => {
+// 15. CLEAR ALL REQUESTS (Super Admin only)
+app.delete('/clear-requests', requireSuperAdmin, (req, res) => {
   const previousCount = state.requestQueue.length;
   
   state.requestQueue = [];
@@ -1015,7 +1065,7 @@ app.get('/stats', (req, res) => {
   });
 });
 
-// 19. ADD PRIORITY REQUEST (Admin only - langsung ke posisi pertama)
+// 19. ADD PRIORITY REQUEST (Admin & Super Admin)
 app.post('/admin/request-first', requireAdmin, (req, res) => {
   try {
     const { query } = req.body;
@@ -1106,7 +1156,7 @@ app.get('/version', (req, res) => {
   res.json({
     version: '2.3.0',
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'admin-priority-request', 'auto-refresh', 'official-tag-automatic'],
+    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic'],
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
     activeUsers: Object.keys(adminSession || {}).length > 0 ? 1 : 0
@@ -1176,14 +1226,14 @@ loadData();
 
 app.listen(PORT, () => {
   console.log("=".repeat(50));
-  console.log("✅ YouTube Music Bridge Server with Admin");
+  console.log("✅ YouTube Music Bridge Server with Multi-Level Admin");
   console.log(`📍 Running at: http://localhost:${PORT}`);
   console.log(`📊 Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
   console.log(`🎵 Current song: ${state.currentSong.title}`);
-  console.log(`🔐 Admin password: ${ADMIN_PASSWORD}`);
+  console.log(`👑 Super Admin: Full access`);
+  console.log(`👨‍💼 Admin: Can add priority, move, delete (single), no clear all`);
   console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
   console.log(`🔄 Auto-refresh: Enabled`);
-  console.log(`👑 Priority requests: Admin only`);
   console.log(`🏷️  Auto "official" tag: Enabled`);
   console.log("=".repeat(50));
   
