@@ -378,9 +378,9 @@ function addOfficialToTitle(query) {
     
     // Cek apakah judul sudah mengandung "official" (case insensitive)
     const lowerTitle = title.toLowerCase();
-    if (!lowerTitle.includes('official')) {
+    if (!lowerTitle.includes('original')) {
       // Tambahkan "official" ke judul
-      return `${title} official - ${artist}`;
+      return `${title} original - ${artist}`;
     }
     
     // Jika sudah ada "official", return query asli
