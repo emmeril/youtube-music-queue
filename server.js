@@ -8,28 +8,28 @@ const { Sequelize, DataTypes } = require('sequelize');
 const app = express();
 const PORT = 4786;
 
-// Konstanta batas antrian
+// Konstanta
 const QUEUE_LIMIT = 100;
-
-// Konstanta admin dengan dua level
 const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-let adminSession = null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 
+let adminSession = null;
+
 // Pastikan direktori data ada
-if (!fs.existsSync(path.join(__dirname, 'data'))) {
-  fs.mkdirSync(path.join(__dirname, 'data'));
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir);
 }
 
 // ================= INISIALISASI SEQUELIZE =================
 const sequelize = new Sequelize({
   dialect: 'sqlite',
-  storage: path.join(__dirname, 'data', 'database.sqlite'),
+  storage: path.join(dataDir, 'database.sqlite'),
   logging: false
 });
 
-// Definisikan model Request (antrian)
+// Model Request (antrian)
 const Request = sequelize.define('Request', {
   id: { type: DataTypes.STRING, primaryKey: true },
   query: { type: DataTypes.STRING, allowNull: false },
@@ -42,10 +42,10 @@ const Request = sequelize.define('Request', {
   originalQuery: { type: DataTypes.STRING },
   isPriority: { type: DataTypes.BOOLEAN, defaultValue: false },
   addedByAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
-  queueOrder: { type: DataTypes.INTEGER, allowNull: false } // untuk urutan
+  queueOrder: { type: DataTypes.INTEGER, allowNull: false }
 });
 
-// Definisikan model History (riwayat)
+// Model History (riwayat)
 const History = sequelize.define('History', {
   id: { type: DataTypes.STRING, primaryKey: true },
   song: { type: DataTypes.JSON, allowNull: false },
@@ -54,9 +54,9 @@ const History = sequelize.define('History', {
   duration: { type: DataTypes.INTEGER, allowNull: false }
 });
 
-// Definisikan model AppState (menyimpan state global: activeRequest, lock, currentSong, dll)
+// Model AppState (state global)
 const AppState = sequelize.define('AppState', {
-  key: { type: DataTypes.STRING, primaryKey: true }, // hanya satu baris dengan key 'state'
+  key: { type: DataTypes.STRING, primaryKey: true },
   activeRequest: { type: DataTypes.JSON },
   requestLockUntil: { type: DataTypes.INTEGER },
   currentSong: { type: DataTypes.JSON },
@@ -147,9 +147,6 @@ let state = {
 };
 
 // ================= HELPER FUNCTIONS =================
-// ... (semua fungsi helper tetap sama: formatDuration, formatWaitTime, calculateConfidence, dll)
-// (tidak diubah, hanya fungsi load/save yang dimodifikasi)
-
 function formatDuration(ms) {
   if (!ms) return '0:00';
   const seconds = Math.round(ms / 1000);
@@ -196,7 +193,7 @@ function scheduleAutoUnlock(lockDuration) {
           state.activeRequest.status = 'auto_completed';
           state.activeRequest.autoCompletedAt = now;
           state.activeRequest = null;
-          saveRequests(); // async, tidak perlu await di sini
+          saveRequests(); // async, tidak perlu await
         }
       }
     }, lockDuration);
@@ -204,19 +201,23 @@ function scheduleAutoUnlock(lockDuration) {
 }
 
 function calculateWaitTime(position) {
-  const avgSongDuration = 3;
+  const avgSongDuration = 3; // menit
   return position * avgSongDuration;
 }
 
 function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
   let confidence = 0;
-  if (songTitle === requestQuery) confidence = 100;
-  else if (songTitle.includes(requestQuery) || requestQuery.includes(songTitle)) confidence = 85;
-  else if (songArtist.includes(requestQuery) || requestQuery.includes(songArtist)) confidence = 75;
+  const lowerQuery = requestQuery.toLowerCase();
+  const lowerTitle = songTitle.toLowerCase();
+  const lowerArtist = songArtist.toLowerCase();
+  
+  if (lowerTitle === lowerQuery) confidence = 100;
+  else if (lowerTitle.includes(lowerQuery) || lowerQuery.includes(lowerTitle)) confidence = 85;
+  else if (lowerArtist.includes(lowerQuery) || lowerQuery.includes(lowerArtist)) confidence = 75;
   else {
-    const requestWords = requestQuery.split(' ');
-    const titleWords = songTitle.split(' ');
-    const artistWords = songArtist.split(' ');
+    const requestWords = lowerQuery.split(' ');
+    const titleWords = lowerTitle.split(' ');
+    const artistWords = lowerArtist.split(' ');
     const matchingWords = requestWords.filter(word => 
       titleWords.some(tw => tw.includes(word)) || 
       artistWords.some(aw => aw.includes(word))
@@ -228,25 +229,28 @@ function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
 
 function sanitizeInput(text) {
   if (!text) return '';
-  text = text.trim().replace(/\s+/g, ' ');
-  return text.replace(/[<>{}]/g, '');
+  return text.trim().replace(/\s+/g, ' ').replace(/[<>{}]/g, '');
 }
 
 function validateSongRequest(query) {
   const errors = [];
-  if (!query || query.trim() === '') errors.push('Query tidak boleh kosong');
-  if (query.length > 200) errors.push('Query terlalu panjang (maksimal 200 karakter)');
-  if (/[<>{}]/.test(query)) errors.push('Query mengandung karakter yang tidak diperbolehkan');
-  const queryParts = query.split('-').map(part => part.trim());
+  const trimmed = query.trim();
+  if (!trimmed) errors.push('Query tidak boleh kosong');
+  if (trimmed.length > 200) errors.push('Query terlalu panjang (maksimal 200 karakter)');
+  if (/[<>{}]/.test(trimmed)) errors.push('Query mengandung karakter yang tidak diperbolehkan');
+  
+  const queryParts = trimmed.split('-').map(part => part.trim());
   if (queryParts.length < 2) errors.push('Format harus: Judul Lagu - Nama Artis');
   if (queryParts[0] && queryParts[0].length < 2) errors.push('Judul lagu minimal 2 karakter');
   if (queryParts[1] && queryParts[1].length < 2) errors.push('Nama artis minimal 2 karakter');
   if (queryParts[0] && queryParts[0].length > 100) errors.push('Judul lagu maksimal 100 karakter');
   if (queryParts[1] && queryParts[1].length > 100) errors.push('Nama artis maksimal 100 karakter');
   if (queryParts[0] && /^\d+$/.test(queryParts[0])) errors.push('Judul lagu tidak boleh hanya angka');
+  
   const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
   if (queryParts[0] && !validCharsRegex.test(queryParts[0])) errors.push('Judul lagu mengandung karakter tidak valid');
   if (queryParts[1] && !validCharsRegex.test(queryParts[1])) errors.push('Nama artis mengandung karakter tidak valid');
+  
   return {
     isValid: errors.length === 0,
     errors,
@@ -258,11 +262,11 @@ function validateSongRequest(query) {
 function addOfficialToTitle(query) {
   try {
     const parts = query.split('-').map(part => part.trim());
-    if (parts.length < 2) return query + ' original';
+    if (parts.length < 2) return query + ' original lirik';
     const title = parts[0];
     const artist = parts.slice(1).join('-');
-    if (!title.toLowerCase().includes('original')) {
-      return `${title} original - ${artist}`;
+    if (!title.toLowerCase().includes('original lirik')) {
+      return `${title} original lirik - ${artist}`;
     }
     return query;
   } catch (error) {
@@ -271,10 +275,84 @@ function addOfficialToTitle(query) {
   }
 }
 
+// Fungsi untuk membuat objek request baru
+function createRequestObject(query, ip, userAgent, isPriority = false, addedByAdmin = false) {
+  const queryWithOfficial = addOfficialToTitle(query);
+  const parts = queryWithOfficial.split('-').map(p => p.trim());
+  return {
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+    query: queryWithOfficial,
+    time: Date.now(),
+    status: 'pending',
+    addedBy: ip || 'unknown',
+    title: parts[0] || queryWithOfficial,
+    artist: parts[1] || 'Unknown Artist',
+    userAgent: userAgent || 'unknown',
+    originalQuery: query,
+    isPriority,
+    addedByAdmin
+  };
+}
+
+// Fungsi untuk menambahkan request ke antrian (dengan validasi dan pengecekan duplicate)
+async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false) {
+  // Validasi
+  const validation = validateSongRequest(query);
+  if (!validation.isValid) {
+    return { success: false, error: validation.errors[0], details: validation.errors };
+  }
+  
+  const queryWithOfficial = addOfficialToTitle(query);
+  
+  // Cek antrian penuh
+  if (state.requestQueue.length >= QUEUE_LIMIT) {
+    return { success: false, error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu).`, queueLimit: QUEUE_LIMIT };
+  }
+  
+  // Cek duplikat di antrian
+  const isDuplicate = state.requestQueue.some(req => req.query.toLowerCase() === queryWithOfficial.toLowerCase());
+  if (isDuplicate) {
+    return { success: false, error: 'Lagu sudah ada dalam antrian' };
+  }
+  
+  // Cek duplikat dengan lagu yang sedang diputar
+  if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
+    return { success: false, error: 'Lagu sedang diputar' };
+  }
+  
+  // Cek riwayat 10 menit terakhir
+  const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+  const recentDuplicate = state.history.some(item => 
+    item.request && item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() && item.timestamp > tenMinutesAgo
+  );
+  if (recentDuplicate) {
+    return { success: false, error: 'Lagu ini baru saja diputar. Tunggu 10 menit.', cooldown: '10 menit' };
+  }
+  
+  const newRequest = createRequestObject(query, ip, userAgent, isPriority, addedByAdmin);
+  
+  if (position === 'first') {
+    state.requestQueue.unshift(newRequest);
+  } else {
+    state.requestQueue.push(newRequest);
+  }
+  
+  await saveRequests();
+  
+  return {
+    success: true,
+    request: newRequest,
+    queuePosition: position === 'first' ? 1 : state.requestQueue.length,
+    estimatedWait: calculateWaitTime(state.requestQueue.length),
+    queueLimit: QUEUE_LIMIT,
+    remainingSlots: QUEUE_LIMIT - state.requestQueue.length
+  };
+}
+
 // ================= FUNGSI DATABASE =================
 async function loadData() {
   try {
-    await sequelize.sync(); // pastikan tabel ada
+    await sequelize.sync();
 
     // Load antrian
     const requests = await Request.findAll({ order: [['queueOrder', 'ASC']] });
@@ -313,7 +391,7 @@ async function loadData() {
       duration: h.duration
     }));
 
-    // Jika masih ada lock tersisa, jadwalkan ulang auto-unlock
+    // Jadwalkan ulang auto-unlock jika masih ada lock
     if (state.requestLockUntil > Date.now()) {
       const remaining = state.requestLockUntil - Date.now();
       scheduleAutoUnlock(remaining);
@@ -330,10 +408,8 @@ async function loadData() {
 
 async function saveRequests() {
   try {
-    // Hapus semua request lama
     await Request.destroy({ where: {} });
     
-    // Insert ulang dengan urutan baru
     const requestsToInsert = state.requestQueue.map((req, index) => ({
       id: req.id,
       query: req.query,
@@ -353,7 +429,6 @@ async function saveRequests() {
       await Request.bulkCreate(requestsToInsert);
     }
     
-    // Simpan juga state global
     await saveAppState();
   } catch (error) {
     console.error('Error saving requests:', error);
@@ -362,9 +437,9 @@ async function saveRequests() {
 
 async function saveHistory() {
   try {
-    // Simpan hanya 100 item terakhir
     const historyToSave = state.history.slice(0, 100);
     await History.destroy({ where: {} });
+    
     const historyToInsert = historyToSave.map(h => ({
       id: h.id,
       song: h.song,
@@ -372,6 +447,7 @@ async function saveHistory() {
       timestamp: h.timestamp,
       duration: h.duration
     }));
+    
     if (historyToInsert.length > 0) {
       await History.bulkCreate(historyToInsert);
     }
@@ -413,15 +489,15 @@ async function addToHistory(song, request = null) {
 }
 
 // ================= API ENDPOINTS =================
-// (Semua endpoint diubah menjadi async dan menambahkan await pada fungsi save)
-
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password diperlukan' });
+  
   let role = null;
   if (password === SUPER_ADMIN_PASSWORD) role = 'super';
   else if (password === ADMIN_PASSWORD) role = 'admin';
   else return res.status(401).json({ error: 'Password salah' });
+  
   const token = Date.now().toString(36) + Math.random().toString(36).substr(2);
   adminSession = {
     token,
@@ -429,6 +505,7 @@ app.post('/admin/login', (req, res) => {
     expires: Date.now() + SESSION_DURATION,
     createdAt: Date.now()
   };
+  
   console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
   res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: adminSession.expires });
 });
@@ -442,7 +519,12 @@ app.post('/admin/logout', requireAdmin, (req, res) => {
 app.get('/admin/status', (req, res) => {
   const sessionToken = req.headers['x-admin-token'];
   const isAdmin = adminSession && adminSession.token === sessionToken && Date.now() < adminSession.expires;
-  res.json({ isAdmin, role: isAdmin ? adminSession.role : null, expiresAt: isAdmin ? adminSession.expires : null, remainingTime: isAdmin ? adminSession.expires - Date.now() : 0 });
+  res.json({ 
+    isAdmin, 
+    role: isAdmin ? adminSession.role : null, 
+    expiresAt: isAdmin ? adminSession.expires : null, 
+    remainingTime: isAdmin ? adminSession.expires - Date.now() : 0 
+  });
 });
 
 app.post('/update', async (req, res) => {
@@ -451,6 +533,7 @@ app.post('/update', async (req, res) => {
     const now = Date.now();
     const validDuration = Math.max(10000, Math.min(duration || 180000, 3600000));
     const confidence = calculateConfidence({ title, artist, duration: validDuration });
+    
     state.currentSong = {
       title: title || 'Tidak diketahui',
       artist: artist || 'Tidak diketahui',
@@ -460,6 +543,7 @@ app.post('/update', async (req, res) => {
       isPlaying: true,
       url: url || null
     };
+    
     console.log(`📊 Song updated: ${title} - ${artist} (${formatDuration(validDuration)}, ${confidence}%)`);
     
     if (state.activeRequest && state.requestLockUntil > 0) {
@@ -477,7 +561,7 @@ app.post('/update', async (req, res) => {
       await addToHistory(state.currentSong, state.activeRequest);
     }
     
-    await saveAppState(); // simpan currentSong dan lock
+    await saveAppState();
     
     res.json({
       success: true,
@@ -546,6 +630,7 @@ app.get('/get-request', async (req, res) => {
       status: 'playing',
       startedAt: now
     };
+    
     const lockDuration = calculateLockDuration(state.currentSong.duration);
     state.requestLockUntil = now + lockDuration;
     state.requestStartTime = now;
@@ -578,59 +663,36 @@ app.get('/get-request', async (req, res) => {
 app.post('/request-song', async (req, res) => {
   try {
     const { query } = req.body;
-    if (!query || query.trim() === '') return res.status(400).json({ error: 'Query tidak boleh kosong' });
-    
-    const validation = validateSongRequest(query);
-    if (!validation.isValid) return res.status(400).json({ error: validation.errors[0], details: validation.errors });
-    
-    const queryWithOfficial = addOfficialToTitle(query);
-    
-    if (state.requestQueue.length >= QUEUE_LIMIT) {
-      return res.status(429).json({ error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu).`, queueLimit: QUEUE_LIMIT, currentQueue: state.requestQueue.length });
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
-    const isDuplicate = state.requestQueue.some(req => req.query.toLowerCase() === queryWithOfficial.toLowerCase());
-    if (isDuplicate) return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
-    if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
-      return res.status(409).json({ error: 'Lagu sedang diputar' });
-    }
-    
-    const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-    const recentDuplicate = state.history.some(item => 
-      item.request && item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() && item.timestamp > tenMinutesAgo
+    const result = await addRequestToQueue(
+      query, 
+      req.ip, 
+      req.headers['user-agent'], 
+      'last', 
+      false, 
+      false
     );
-    if (recentDuplicate) {
-      return res.status(429).json({ error: 'Lagu ini baru saja diputar. Tunggu 10 menit.', cooldown: '10 menit' });
+    
+    if (!result.success) {
+      const status = result.error.includes('penuh') ? 429 : 
+                     result.error.includes('sudah ada') ? 409 : 400;
+      return res.status(status).json(result);
     }
     
-    const officialQueryParts = queryWithOfficial.split('-').map(part => part.trim());
-    const newRequest = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-      query: queryWithOfficial,
-      time: Date.now(),
-      status: 'pending',
-      addedBy: req.ip || 'unknown',
-      title: officialQueryParts[0] || queryWithOfficial,
-      artist: officialQueryParts[1] || 'Unknown Artist',
-      userAgent: req.headers['user-agent'] || 'unknown',
-      originalQuery: query
-    };
-    
-    state.requestQueue.push(newRequest);
-    await saveRequests();
-    
-    console.log(`📝 Request added: "${query}" → "${queryWithOfficial}"`);
-    console.log(`📝 Validated as: Title="${officialQueryParts[0] || queryWithOfficial}", Artist="${officialQueryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📝 Request added: "${query}" → "${result.request.query}"`);
     console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
     
     res.json({
       success: true,
       message: 'Request berhasil ditambahkan',
-      request: newRequest,
-      queuePosition: state.requestQueue.length,
-      estimatedWait: calculateWaitTime(state.requestQueue.length),
-      queueLimit: QUEUE_LIMIT,
-      remainingSlots: QUEUE_LIMIT - state.requestQueue.length
+      request: result.request,
+      queuePosition: result.queuePosition,
+      estimatedWait: result.estimatedWait,
+      queueLimit: result.queueLimit,
+      remainingSlots: result.remainingSlots
     });
   } catch (error) {
     console.error('Error in /request-song:', error);
@@ -641,7 +703,9 @@ app.post('/request-song', async (req, res) => {
 app.post('/admin/move-request', requireAdmin, async (req, res) => {
   try {
     const { requestId, newPosition } = req.body;
-    if (!requestId || !newPosition) return res.status(400).json({ error: 'requestId dan newPosition diperlukan' });
+    if (!requestId || !newPosition) {
+      return res.status(400).json({ error: 'requestId dan newPosition diperlukan' });
+    }
     if (newPosition < 1 || newPosition > state.requestQueue.length) {
       return res.status(400).json({ error: `Posisi harus antara 1 dan ${state.requestQueue.length}` });
     }
@@ -695,20 +759,29 @@ app.post('/song-ended', async (req, res) => {
   try {
     const now = Date.now();
     console.log(`⏭️ Song ended notification received`);
+    
     if (state.songEndTimeout) {
       clearTimeout(state.songEndTimeout);
       state.songEndTimeout = null;
     }
+    
     state.requestLockUntil = 0;
     state.currentSong.isPlaying = false;
+    
     if (state.activeRequest) {
       state.activeRequest.status = 'completed';
       state.activeRequest.completedAt = now;
       state.activeRequest.actualDuration = now - state.activeRequest.startedAt;
       state.activeRequest = null;
     }
+    
     await saveRequests();
-    res.json({ success: true, message: 'Lock released for next request', timestamp: now, nextRequestAvailable: state.requestQueue.length > 0 });
+    res.json({ 
+      success: true, 
+      message: 'Lock released for next request', 
+      timestamp: now, 
+      nextRequestAvailable: state.requestQueue.length > 0 
+    });
   } catch (error) {
     console.error('Error in /song-ended:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -717,11 +790,18 @@ app.post('/song-ended', async (req, res) => {
 
 app.post('/verify-match', (req, res) => {
   const { title, artist } = req.body;
-  if (!state.activeRequest) return res.json({ isMatch: false, reason: 'No active request' });
+  if (!state.activeRequest) {
+    return res.json({ isMatch: false, reason: 'No active request' });
+  }
+  
   const requestQuery = state.activeRequest.query.toLowerCase();
   const songTitle = (title || '').toLowerCase();
   const songArtist = (artist || '').toLowerCase();
-  const isMatch = songTitle.includes(requestQuery) || requestQuery.includes(songTitle) || songArtist.includes(requestQuery) || requestQuery.includes(songArtist);
+  const isMatch = songTitle.includes(requestQuery) || 
+                  requestQuery.includes(songTitle) || 
+                  songArtist.includes(requestQuery) || 
+                  requestQuery.includes(songArtist);
+  
   const matchData = {
     isMatch,
     requestId: state.activeRequest.id,
@@ -730,25 +810,37 @@ app.post('/verify-match', (req, res) => {
     songArtist: artist,
     confidence: calculateMatchConfidence(requestQuery, songTitle, songArtist)
   };
-  if (isMatch) console.log(`✅ Song match confirmed: "${title}" matches request "${requestQuery}"`);
+  
+  if (isMatch) {
+    console.log(`✅ Song match confirmed: "${title}" matches request "${requestQuery}"`);
+  }
   res.json(matchData);
 });
 
 app.post('/skip-current', requireSuperAdmin, async (req, res) => {
   try {
     console.log('⏭️ Skip current request requested');
+    
     if (state.songEndTimeout) {
       clearTimeout(state.songEndTimeout);
       state.songEndTimeout = null;
     }
+    
     state.requestLockUntil = 0;
+    
     if (state.activeRequest) {
       state.activeRequest.status = 'skipped';
       state.activeRequest.skippedAt = Date.now();
       state.activeRequest = null;
     }
+    
     await saveRequests();
-    res.json({ success: true, message: 'Request skipped successfully', nextRequest: state.requestQueue.length > 0 ? state.requestQueue[0] : null, queueLength: state.requestQueue.length });
+    res.json({ 
+      success: true, 
+      message: 'Request skipped successfully', 
+      nextRequest: state.requestQueue.length > 0 ? state.requestQueue[0] : null, 
+      queueLength: state.requestQueue.length 
+    });
   } catch (error) {
     console.error('Error in /skip-current:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -758,17 +850,21 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
 app.post('/force-next', requireSuperAdmin, async (req, res) => {
   try {
     console.log('⚡ Force next requested');
+    
     if (state.songEndTimeout) {
       clearTimeout(state.songEndTimeout);
       state.songEndTimeout = null;
     }
+    
     state.requestLockUntil = 0;
     state.currentSong.isPlaying = false;
+    
     if (state.activeRequest) {
       state.activeRequest.status = 'force_skipped';
       state.activeRequest.forceSkippedAt = Date.now();
       state.activeRequest = null;
     }
+    
     await saveRequests();
     res.json({ success: true, message: 'Force skip completed', timestamp: Date.now() });
   } catch (error) {
@@ -784,6 +880,7 @@ app.delete('/remove-request/:id', requireAdmin, async (req, res) => {
     if (index === -1) return res.status(404).json({ error: 'Request tidak ditemukan' });
     
     const removed = state.requestQueue.splice(index, 1)[0];
+    
     if (state.activeRequest && state.activeRequest.id === id) {
       if (state.songEndTimeout) {
         clearTimeout(state.songEndTimeout);
@@ -793,9 +890,17 @@ app.delete('/remove-request/:id', requireAdmin, async (req, res) => {
       state.activeRequest = null;
       console.log(`⚠️ Active request removed: "${removed.query}"`);
     }
+    
     await saveRequests();
     console.log(`🗑️ Request removed: "${removed.query}"`);
-    res.json({ success: true, message: 'Request berhasil dihapus', removed: removed.query, newQueueLength: state.requestQueue.length, queueLimit: QUEUE_LIMIT, remainingSlots: QUEUE_LIMIT - state.requestQueue.length });
+    res.json({ 
+      success: true, 
+      message: 'Request berhasil dihapus', 
+      removed: removed.query, 
+      newQueueLength: state.requestQueue.length, 
+      queueLimit: QUEUE_LIMIT, 
+      remainingSlots: QUEUE_LIMIT - state.requestQueue.length 
+    });
   } catch (error) {
     console.error('Error in /remove-request:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -808,13 +913,21 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
     state.requestQueue = [];
     state.activeRequest = null;
     state.requestLockUntil = 0;
+    
     if (state.songEndTimeout) {
       clearTimeout(state.songEndTimeout);
       state.songEndTimeout = null;
     }
+    
     await saveRequests();
     console.log(`🗑️ Cleared ${previousCount} requests`);
-    res.json({ success: true, message: 'Semua request telah dihapus', clearedCount: previousCount, queueLimit: QUEUE_LIMIT, remainingSlots: QUEUE_LIMIT });
+    res.json({ 
+      success: true, 
+      message: 'Semua request telah dihapus', 
+      clearedCount: previousCount, 
+      queueLimit: QUEUE_LIMIT, 
+      remainingSlots: QUEUE_LIMIT 
+    });
   } catch (error) {
     console.error('Error in /clear-requests:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -825,9 +938,11 @@ app.get('/queue-info', (req, res) => {
   const now = Date.now();
   const isLocked = now < state.requestLockUntil;
   const remainingSeconds = isLocked ? Math.ceil((state.requestLockUntil - now) / 1000) : 0;
+  
   let totalQueueMinutes = 0;
   if (isLocked) totalQueueMinutes += remainingSeconds / 60;
   state.requestQueue.forEach(() => totalQueueMinutes += (state.currentSong.duration / 60000));
+  
   res.json({
     isLocked,
     lockUntil: state.requestLockUntil,
@@ -872,53 +987,36 @@ app.get('/stats', (req, res) => {
 app.post('/admin/request-first', requireAdmin, async (req, res) => {
   try {
     const { query } = req.body;
-    if (!query || query.trim() === '') return res.status(400).json({ error: 'Query tidak boleh kosong' });
-    
-    const validation = validateSongRequest(query);
-    if (!validation.isValid) return res.status(400).json({ error: validation.errors[0], details: validation.errors });
-    
-    const queryWithOfficial = addOfficialToTitle(query);
-    
-    if (state.requestQueue.length >= QUEUE_LIMIT) {
-      return res.status(429).json({ error: `Antrian penuh (maksimal ${QUEUE_LIMIT} lagu).`, queueLimit: QUEUE_LIMIT, currentQueue: state.requestQueue.length });
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
-    const isDuplicate = state.requestQueue.some(req => req.query.toLowerCase() === queryWithOfficial.toLowerCase());
-    if (isDuplicate) return res.status(409).json({ error: 'Lagu sudah ada dalam antrian' });
-    if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
-      return res.status(409).json({ error: 'Lagu sedang diputar' });
+    const result = await addRequestToQueue(
+      query, 
+      req.ip, 
+      req.headers['user-agent'], 
+      'first', 
+      true, 
+      true
+    );
+    
+    if (!result.success) {
+      const status = result.error.includes('penuh') ? 429 : 
+                     result.error.includes('sudah ada') ? 409 : 400;
+      return res.status(status).json(result);
     }
     
-    const officialQueryParts = queryWithOfficial.split('-').map(part => part.trim());
-    const newRequest = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2),
-      query: queryWithOfficial,
-      time: Date.now(),
-      status: 'pending',
-      addedBy: req.ip || 'unknown',
-      title: officialQueryParts[0] || queryWithOfficial,
-      artist: officialQueryParts[1] || 'Unknown Artist',
-      isPriority: true,
-      addedByAdmin: true,
-      userAgent: req.headers['user-agent'] || 'unknown',
-      originalQuery: query
-    };
-    
-    state.requestQueue.unshift(newRequest);
-    await saveRequests();
-    
-    console.log(`📝 Priority request added (first position): "${query}" → "${queryWithOfficial}"`);
-    console.log(`📝 Validated as: Title="${officialQueryParts[0] || queryWithOfficial}", Artist="${officialQueryParts[1] || 'Unknown Artist'}"`);
+    console.log(`📝 Priority request added (first position): "${query}" → "${result.request.query}"`);
     console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
     
     res.json({
       success: true,
       message: 'Priority request berhasil ditambahkan di posisi pertama',
-      request: newRequest,
+      request: result.request,
       queuePosition: 1,
       estimatedWait: 0,
-      queueLimit: QUEUE_LIMIT,
-      remainingSlots: QUEUE_LIMIT - state.requestQueue.length
+      queueLimit: result.queueLimit,
+      remainingSlots: result.remainingSlots
     });
   } catch (error) {
     console.error('Error in /admin/request-first:', error);
@@ -933,7 +1031,7 @@ app.get('/version', (req, res) => {
     features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic'],
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
-    activeUsers: Object.keys(adminSession || {}).length > 0 ? 1 : 0
+    activeUsers: adminSession ? 1 : 0
   });
 });
 
