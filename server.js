@@ -258,7 +258,7 @@ function validateSongRequest(query) {
 function addOfficialToTitle(query) {
   try {
     const parts = query.split('-').map(part => part.trim());
-    if (parts.length < 2) return query + ' official';
+    if (parts.length < 2) return query + ' original';
     const title = parts[0];
     const artist = parts.slice(1).join('-');
     if (!title.toLowerCase().includes('original')) {
