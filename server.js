@@ -262,11 +262,11 @@ function validateSongRequest(query) {
 function addOfficialToTitle(query) {
   try {
     const parts = query.split('-').map(part => part.trim());
-    if (parts.length < 2) return query + ' original lirik';
+    if (parts.length < 2) return query + 'lirik';
     const title = parts[0];
     const artist = parts.slice(1).join('-');
-    if (!title.toLowerCase().includes('original lirik')) {
-      return `${title} original lirik - ${artist}`;
+    if (!title.toLowerCase().includes('lirik')) {
+      return `${title} lirik - ${artist}`;
     }
     return query;
   } catch (error) {
