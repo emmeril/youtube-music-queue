@@ -1116,8 +1116,8 @@ setInterval(async () => {
     changed = true;
   }
   
-  if (state.currentSong.isPlaying && now - state.currentSong.timestamp > 120000) {
-    console.log('🔄 Auto-reset: No song update for 2 minutes');
+  if (state.currentSong.isPlaying && now - state.currentSong.timestamp > 60000) {
+    console.log('🔄 Auto-reset: No song update for 1 minutes');
     state.currentSong.isPlaying = false;
     changed = true;
   }
