@@ -231,7 +231,7 @@
                 // Fungsi untuk menambahkan "official" ke judul jika belum ada
                 prepareQuery(title, artist) {
                     let judul = title.trim();
-                    const kataOfficial = "original lirik";
+                    const kataOfficial = "lirik";
                     
                     // Cek apakah judul sudah mengandung kata "official" (case insensitive)
                     if (!judul.toLowerCase().includes(kataOfficial)) {
