@@ -8,7 +8,7 @@ const CONFIG = {
 };
 
 // ================= STATE MANAGEMENT =================
-let state = {
+const state = {
   currentSong: {
     title: '',
     artist: '',
@@ -51,7 +51,7 @@ class VideoMonitor {
         '#movie_player video',
         '.html5-main-video'
       ];
-      
+
       for (const selector of videoSelectors) {
         this.video = document.querySelector(selector);
         if (this.video) break;
@@ -62,14 +62,12 @@ class VideoMonitor {
   setupEventListeners() {
     if (!this.video) return;
 
-    // Event untuk deteksi lagu selesai
     this.video.addEventListener('ended', () => {
       this.isEnded = true;
       this.log('🎬 Video ended - triggering next song');
       this.handleSongEnd();
     });
 
-    // Event untuk deteksi lagu mulai
     this.video.addEventListener('playing', () => {
       if (this.isEnded) {
         this.isEnded = false;
@@ -78,13 +76,11 @@ class VideoMonitor {
       }
     });
 
-    // Event untuk deteksi waktu video
     this.video.addEventListener('timeupdate', () => {
       const now = Date.now();
       if (now - this.lastUpdate > 1000) {
         this.lastUpdate = now;
-        
-        // Deteksi jika video kembali ke awal (lagu baru)
+
         if (this.video.currentTime < 2 && this.lastTime > 30) {
           this.log('🔄 Video reset detected - new song');
           setTimeout(() => SongManager.update(), 1500);
@@ -93,7 +89,6 @@ class VideoMonitor {
       }
     });
 
-    // Tambahkan observer untuk perubahan DOM
     this.setupMutationObserver();
   }
 
@@ -121,7 +116,7 @@ class VideoMonitor {
         this.log('✅ Server notified of song end');
         setTimeout(() => RequestProcessor.checkRequests(), 1000);
       })
-      .catch(err => this.error('Failed to notify server:', err));
+      .catch((err) => this.error('Failed to notify server:', err));
   }
 
   log(...args) {
@@ -144,9 +139,9 @@ class SongManager {
     try {
       const songInfo = this.extractSongInfo();
       const duration = this.getDuration();
-      
+
       const isNewSong = this.isNewSong(songInfo, duration);
-      
+
       if (isNewSong || this.shouldForceUpdate()) {
         this.sendToServer(songInfo, duration, isNewSong);
       }
@@ -179,7 +174,7 @@ class SongManager {
 
     for (const selector of titleSelectors) {
       const element = document.querySelector(selector);
-      if (element && element.textContent && element.textContent.trim()) {
+      if (element?.textContent?.trim()) {
         title = element.textContent.trim();
         break;
       }
@@ -187,10 +182,9 @@ class SongManager {
 
     for (const selector of artistSelectors) {
       const element = document.querySelector(selector);
-      if (element && element.textContent && element.textContent.trim()) {
+      if (element?.textContent?.trim()) {
         let artistText = element.textContent.trim();
         artistText = this.cleanArtistText(artistText);
-        
         if (artistText) {
           artist = artistText;
           break;
@@ -203,35 +197,37 @@ class SongManager {
 
   static cleanArtistText(text) {
     if (!text) return text;
-    
+
     const separators = ['•', '·', '|', '-', '–', '—'];
-    
     for (const separator of separators) {
       if (text.includes(separator)) {
         text = text.split(separator)[0].trim();
       }
     }
-    
+
     const commonWords = ['Topic', 'VEVO', 'Official', 'Video', 'Audio'];
-    commonWords.forEach(word => {
+    commonWords.forEach((word) => {
       const regex = new RegExp(`\\s*${word}\\s*`, 'gi');
       text = text.replace(regex, ' ');
     });
-    
+
     return text.trim();
   }
 
   static getDuration() {
     const video = document.querySelector('video');
-    if (video && video.duration && video.duration > 0) {
+    if (video?.duration && video.duration > 0) {
       return Math.round(video.duration * 1000);
     }
 
-    const progressBar = document.querySelector('tp-yt-paper-progress, .ytp-progress-bar');
+    const progressBar = document.querySelector(
+      'tp-yt-paper-progress, .ytp-progress-bar'
+    );
     if (progressBar) {
-      const max = progressBar.getAttribute('aria-valuemax') || 
-                  progressBar.getAttribute('max') ||
-                  progressBar.style.getPropertyValue('--max-value');
+      const max =
+        progressBar.getAttribute('aria-valuemax') ||
+        progressBar.getAttribute('max') ||
+        progressBar.style.getPropertyValue('--max-value');
       if (max && parseFloat(max) > 0) {
         return parseFloat(max) * 1000;
       }
@@ -240,7 +236,6 @@ class SongManager {
     const durationElements = document.querySelectorAll(
       '.ytp-time-duration, .time-info, [aria-label*="duration"], [class*="duration"]'
     );
-    
     for (const element of durationElements) {
       const text = element.textContent || '';
       if (text.includes(':')) {
@@ -255,16 +250,16 @@ class SongManager {
   static parseTimeText(text) {
     const timeMatch = text.match(/(\d+):(\d+)/g);
     if (!timeMatch) return 0;
-    
+
     const lastTime = timeMatch[timeMatch.length - 1];
     const parts = lastTime.split(':').map(Number);
-    
+
     if (parts.length === 2) {
       return parts[0] * 60 + parts[1];
-    } else if (parts.length === 3) {
+    }
+    if (parts.length === 3) {
       return parts[0] * 3600 + parts[1] * 60 + parts[2];
     }
-    
     return 0;
   }
 
@@ -272,18 +267,16 @@ class SongManager {
     const titleChanged = songInfo.title !== this.lastTitle;
     const artistChanged = songInfo.artist !== this.lastArtist;
     const durationChanged = Math.abs(duration - this.lastDuration) > 10000;
-    
+
     return titleChanged || (artistChanged && songInfo.artist !== 'Tidak diketahui') || durationChanged;
   }
 
   static shouldForceUpdate() {
     this.updateCount++;
-    
     if (this.updateCount >= 10) {
       this.updateCount = 0;
       return true;
     }
-    
     return Date.now() - state.currentSong.timestamp > 30000;
   }
 
@@ -308,12 +301,12 @@ class SongManager {
         this.lastArtist = songInfo.artist;
         this.lastDuration = duration;
         state.currentSong = songData;
-        
+
         if (isNewSong) {
           this.log(`🎵 New song detected: ${songInfo.title} - ${songInfo.artist}`);
           setTimeout(() => this.verifyRequestMatch(songInfo), 2000);
         }
-        
+
         DebugPanel.update(songInfo, duration);
       }
     } catch (error) {
@@ -328,9 +321,8 @@ class SongManager {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(songInfo)
       });
-      
+
       const result = await response.json();
-      
       if (result.isMatch && result.requestId) {
         this.log(`✅ Song matches request: ${result.requestQuery}`);
       }
@@ -355,12 +347,12 @@ class SearchAutoplay {
 
   start() {
     this.log('Starting search autoplay...');
-    
+
     this.interval = setInterval(() => {
       this.attempts++;
       this.findAndPlay();
     }, 1000);
-    
+
     setTimeout(() => {
       if (this.interval) {
         this.stop();
@@ -401,18 +393,16 @@ class SearchAutoplay {
         const elements = document.querySelectorAll(selector);
         if (elements.length > 0) {
           const element = elements[0];
-          
+
           this.log(`Found ${elements.length} elements with selector: ${selector}`);
-          
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          
+
           setTimeout(() => {
             element.click();
             this.log('Clicked play element');
-            
             this.verifyPlayback();
           }, 500);
-          
+
           this.stop();
           return;
         }
@@ -427,8 +417,8 @@ class SearchAutoplay {
   }
 
   async verifyPlayback() {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     const video = document.querySelector('video');
     if (video && (video.currentTime > 0 || !video.paused)) {
       this.log('✅ Playback verified successfully');
@@ -442,7 +432,7 @@ class SearchAutoplay {
 
   tryAlternativeMethods() {
     this.log('Trying alternative search methods...');
-    
+
     const links = document.querySelectorAll('a[href*="/watch"]');
     for (const link of links) {
       if (!link.href.includes('list=')) {
@@ -452,10 +442,10 @@ class SearchAutoplay {
         return;
       }
     }
-    
+
     document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
     this.log('Sent space key for playback');
-    
+
     setTimeout(() => {
       const video = document.querySelector('video');
       if (!video || video.paused) {
@@ -496,22 +486,22 @@ class RequestProcessor {
     }
 
     this.isProcessing = true;
-    
+
     try {
       const response = await fetch(`${CONFIG.SERVER_URL}/get-request`);
-      
+
       if (response.status === 423) {
         const data = await response.json();
         this.log(`Request locked: ${data.remainingFormatted} remaining`);
         return;
       }
-      
+
       if (response.status === 204) {
         return;
       }
-      
+
       const request = await response.json();
-      if (request && request.query) {
+      if (request?.query) {
         this.processRequest(request);
       }
     } catch (error) {
@@ -524,14 +514,14 @@ class RequestProcessor {
 
   static async processRequest(request) {
     this.log(`Processing request: "${request.query}"`);
-    
+
     state.lastProcessedRequest = request;
     state.isProcessingRequest = true;
-    
+
     DebugPanel.setStatus(`Processing: ${request.query}`);
-    
+
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(request.query)}`;
-    
+
     if (window.location.href === searchUrl) {
       this.log('Already on search page, starting autoplay');
       new SearchAutoplay().start();
@@ -553,12 +543,12 @@ class ServerAPI {
       const response = await fetch(`${CONFIG.SERVER_URL}/song-ended`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           timestamp: Date.now(),
-          url: window.location.href 
+          url: window.location.href
         })
       });
-      
+
       return response.json();
     } catch (error) {
       console.error('Failed to notify server:', error);
@@ -571,7 +561,7 @@ class ServerAPI {
       const response = await fetch(`${CONFIG.SERVER_URL}/skip-current`, {
         method: 'POST'
       });
-      
+
       return response.json();
     } catch (error) {
       console.error('Failed to skip:', error);
@@ -587,7 +577,7 @@ class DebugPanel {
 
   static create() {
     if (this.panel) return;
-    
+
     this.panel = document.createElement('div');
     this.panel.id = 'ytm-debug-panel';
     this.panel.style.cssText = `
@@ -608,7 +598,7 @@ class DebugPanel {
       backdrop-filter: blur(12px);
       transition: all 0.3s ease;
     `;
-    
+
     this.panel.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -620,7 +610,7 @@ class DebugPanel {
           <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Refresh</button>
         </div>
       </div>
-      
+
       <div style="margin-bottom: 8px;">
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">LAGU SAAT INI</div>
         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -629,7 +619,7 @@ class DebugPanel {
           <div><strong>Durasi:</strong> <span id="debug-duration" style="color: #2ed573;">-</span></div>
         </div>
       </div>
-      
+
       <div style="margin-bottom: 8px;">
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">STATUS</div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -637,7 +627,7 @@ class DebugPanel {
           <div><strong>Update:</strong> <span id="debug-time" style="color: #aaa;">${new Date().toLocaleTimeString()}</span></div>
         </div>
       </div>
-      
+
       <div>
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">AKSI CEPAT</div>
         <div style="display: flex; gap: 6px;">
@@ -645,21 +635,21 @@ class DebugPanel {
           <button id="debug-check" style="flex: 1; background: #3742fa; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Cek Request</button>
         </div>
       </div>
-      
+
       <style>
         @keyframes pulse {
           0% { opacity: 1; }
           50% { opacity: 0.5; }
           100% { opacity: 1; }
         }
-        
+
         #debug-toggle:hover { background: #444 !important; }
         #debug-refresh:hover { background: #444 !important; }
         #debug-skip:hover { background: #ffb142 !important; }
         #debug-check:hover { background: #5352ed !important; }
       </style>
     `;
-    
+
     document.body.appendChild(this.panel);
     this.setupEventListeners();
   }
@@ -669,11 +659,11 @@ class DebugPanel {
       this.isVisible = !this.isVisible;
       this.panel.style.display = this.isVisible ? 'block' : 'none';
     });
-    
+
     document.getElementById('debug-refresh').addEventListener('click', () => {
       location.reload();
     });
-    
+
     document.getElementById('debug-skip').addEventListener('click', async () => {
       try {
         await ServerAPI.skipCurrent();
@@ -683,7 +673,7 @@ class DebugPanel {
         this.setStatus('Skip failed', true);
       }
     });
-    
+
     document.getElementById('debug-check').addEventListener('click', () => {
       RequestProcessor.checkRequests();
       this.setStatus('Checking requests...');
@@ -692,26 +682,26 @@ class DebugPanel {
 
   static update(songInfo, duration) {
     if (!this.panel) this.create();
-    
+
     const durationSec = Math.round(duration / 1000);
     const minutes = Math.floor(durationSec / 60);
     const seconds = durationSec % 60;
-    
+
     document.getElementById('debug-title').textContent = songInfo.title || '-';
     document.getElementById('debug-artist').textContent = songInfo.artist || '-';
-    document.getElementById('debug-duration').textContent = 
-      `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    document.getElementById('debug-time').textContent = 
-      new Date().toLocaleTimeString();
+    document.getElementById('debug-duration').textContent = `${minutes}:${seconds
+      .toString()
+      .padStart(2, '0')}`;
+    document.getElementById('debug-time').textContent = new Date().toLocaleTimeString();
   }
 
   static setStatus(message, isError = false) {
     if (!this.panel) this.create();
-    
+
     const statusElement = document.getElementById('debug-status');
     statusElement.textContent = message;
     statusElement.style.color = isError ? '#ff4757' : '#2ed573';
-    
+
     setTimeout(() => {
       statusElement.textContent = 'Aktif';
       statusElement.style.color = '#2ed573';
@@ -722,10 +712,10 @@ class DebugPanel {
 // ================= URL MONITOR =================
 class URLMonitor {
   static lastURL = '';
-  
+
   static init() {
     this.lastURL = window.location.href;
-    
+
     setInterval(() => {
       const currentURL = window.location.href;
       if (currentURL !== this.lastURL) {
@@ -733,7 +723,7 @@ class URLMonitor {
         this.lastURL = currentURL;
       }
     }, 1000);
-    
+
     window.addEventListener('popstate', () => {
       setTimeout(() => {
         this.handleURLChange(this.lastURL, window.location.href);
@@ -741,15 +731,15 @@ class URLMonitor {
       }, 100);
     });
   }
-  
+
   static handleURLChange(oldURL, newURL) {
     console.log(`🌐 URL changed: ${oldURL} → ${newURL}`);
-    
+
     if (newURL.includes('/search?q=')) {
       console.log('🔍 Search page detected, starting autoplay in 1.5s');
       setTimeout(() => new SearchAutoplay().start(), 1500);
     }
-    
+
     if (!oldURL.includes('music.youtube.com') || !newURL.includes('music.youtube.com')) {
       SongManager.lastTitle = '';
       SongManager.lastArtist = '';
@@ -760,21 +750,21 @@ class URLMonitor {
 // ================= INISIALISASI UTAMA =================
 function initialize() {
   console.log('🚀 Initializing YouTube Music Bridge...');
-  
+
   new VideoMonitor();
   URLMonitor.init();
   DebugPanel.create();
-  
+
   setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
   setInterval(() => RequestProcessor.checkRequests(), CONFIG.REQUEST_CHECK_INTERVAL);
-  
+
   setTimeout(() => SongManager.update(), 1000);
   setTimeout(() => RequestProcessor.checkRequests(), 2000);
-  
+
   if (window.location.href.includes('/search?q=')) {
     setTimeout(() => new SearchAutoplay().start(), 2000);
   }
-  
+
   console.log('✅ YouTube Music Bridge initialized successfully!');
   DebugPanel.setStatus('Sistem aktif dan berjalan');
 }
