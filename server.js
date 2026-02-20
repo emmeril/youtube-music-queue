@@ -262,13 +262,24 @@ function validateSongRequest(query) {
 function addOfficialToTitle(query) {
   try {
     const parts = query.split('-').map(part => part.trim());
-    if (parts.length < 2) return query + 'lirik';
-    const title = parts[0];
+    if (parts.length < 2) return query + ' original lirik';
+    
+    let title = parts[0];
     const artist = parts.slice(1).join('-');
-    if (!title.toLowerCase().includes('lirik')) {
-      return `${title} lirik - ${artist}`;
+    const lowerTitle = title.toLowerCase();
+
+    if (lowerTitle.includes('original lirik')) {
+      // Sudah mengandung "original lirik", tidak perlu diubah
+      return query;
+    } else if (lowerTitle.includes('lirik')) {
+      // Ganti "lirik" pertama dengan "original lirik"
+      title = title.replace(/lirik/i, 'original lirik');
+    } else {
+      // Tidak mengandung "lirik" sama sekali, tambahkan di akhir
+      title = title + ' original lirik';
     }
-    return query;
+    
+    return `${title} - ${artist}`;
   } catch (error) {
     console.error('Error in addOfficialToTitle:', error);
     return query;

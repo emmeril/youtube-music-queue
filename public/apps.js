@@ -229,17 +229,22 @@
                 },
                 
                 // Fungsi untuk menambahkan "official" ke judul jika belum ada
-                prepareQuery(title, artist) {
-                    let judul = title.trim();
-                    const kataOfficial = "lirik";
-                    
-                    // Cek apakah judul sudah mengandung kata "official" (case insensitive)
-                    if (!judul.toLowerCase().includes(kataOfficial)) {
-                        judul = judul + ' ' + kataOfficial;
-                    }
-                    
-                    return `${judul} - ${artist.trim()}`;
-                },
+               prepareQuery(title, artist) {
+    let judul = title.trim();
+    const lowerJudul = judul.toLowerCase();
+
+    if (lowerJudul.includes('original lirik')) {
+        // Sudah ada, tidak perlu diubah
+    } else if (lowerJudul.includes('lirik')) {
+        // Ganti "lirik" pertama dengan "original lirik"
+        judul = judul.replace(/lirik/i, 'original lirik');
+    } else {
+        // Tambahkan "original lirik" di akhir
+        judul = judul + ' original lirik';
+    }
+    
+    return `${judul} - ${artist.trim()}`;
+},
                 
                 // Add new request
                 async addRequest() {
