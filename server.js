@@ -13,6 +13,7 @@ const QUEUE_LIMIT = 100;
 const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
+const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 
 let adminSession = null;
 
@@ -70,7 +71,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ================= MIDDLEWARE ADMIN =================
+// ================= MIDDLEWARE ADMIN (dengan sliding expiration) =================
 function requireAdmin(req, res, next) {
   const sessionToken = req.headers['x-admin-token'];
   
@@ -87,6 +88,13 @@ function requireAdmin(req, res, next) {
       error: 'Session admin telah kadaluarsa. Silakan login kembali.',
       sessionExpired: true 
     });
+  }
+  
+  // Sliding expiration: perpanjang jika sisa waktu kurang dari threshold
+  const remaining = adminSession.expires - Date.now();
+  if (remaining < SESSION_REFRESH_THRESHOLD) {
+    adminSession.expires = Date.now() + SESSION_DURATION;
+    console.log(`🔄 Admin session extended, new expiry: ${new Date(adminSession.expires).toLocaleString()}`);
   }
   
   req.adminRole = adminSession.role;
@@ -109,6 +117,13 @@ function requireSuperAdmin(req, res, next) {
       error: 'Session admin telah kadaluarsa. Silakan login kembali.',
       sessionExpired: true 
     });
+  }
+  
+  // Sliding expiration
+  const remaining = adminSession.expires - Date.now();
+  if (remaining < SESSION_REFRESH_THRESHOLD) {
+    adminSession.expires = Date.now() + SESSION_DURATION;
+    console.log(`🔄 Super admin session extended, new expiry: ${new Date(adminSession.expires).toLocaleString()}`);
   }
   
   if (adminSession.role !== 'super') {
@@ -529,12 +544,33 @@ app.post('/admin/logout', requireAdmin, (req, res) => {
 
 app.get('/admin/status', (req, res) => {
   const sessionToken = req.headers['x-admin-token'];
-  const isAdmin = adminSession && adminSession.token === sessionToken && Date.now() < adminSession.expires;
-  res.json({ 
-    isAdmin, 
-    role: isAdmin ? adminSession.role : null, 
-    expiresAt: isAdmin ? adminSession.expires : null, 
-    remainingTime: isAdmin ? adminSession.expires - Date.now() : 0 
+  let isAdmin = false;
+  let role = null;
+  let expiresAt = null;
+
+  if (sessionToken && adminSession && adminSession.token === sessionToken) {
+    if (Date.now() < adminSession.expires) {
+      isAdmin = true;
+      role = adminSession.role;
+      expiresAt = adminSession.expires;
+
+      // Sliding expiration jika sisa < 1 jam
+      const remaining = adminSession.expires - Date.now();
+      if (remaining < SESSION_REFRESH_THRESHOLD) {
+        adminSession.expires = Date.now() + SESSION_DURATION;
+        expiresAt = adminSession.expires;
+        console.log(`🔄 Admin session extended via status check, new expiry: ${new Date(adminSession.expires).toLocaleString()}`);
+      }
+    } else {
+      adminSession = null; // bersihkan jika expired
+    }
+  }
+
+  res.json({
+    isAdmin,
+    role,
+    expiresAt,
+    remainingTime: isAdmin ? expiresAt - Date.now() : 0
   });
 });
 
