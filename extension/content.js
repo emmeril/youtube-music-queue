@@ -344,6 +344,7 @@ class SearchAutoplay {
     this.maxAttempts = 20;
     this.timeout = CONFIG.SEARCH_TIMEOUT;
     this.interval = null;
+    this.songFilterApplied = false;
   }
 
   start() {
@@ -382,12 +383,14 @@ class SearchAutoplay {
       return;
     }
 
-    const bestPlayElement = this.findBestSongPlayElement();
-    if (bestPlayElement) {
-      this.log('Found best song candidate from search results');
-      bestPlayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    this.ensureSongFilterApplied();
+
+    const bestCandidate = this.findBestSongCandidate();
+    if (bestCandidate && bestCandidate.playElement) {
+      this.log(`Found candidate score=${bestCandidate.score}`);
+      bestCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => {
-        bestPlayElement.click();
+        bestCandidate.playElement.click();
         this.log('Clicked best candidate play element');
         this.verifyPlayback();
       }, 500);
@@ -395,40 +398,18 @@ class SearchAutoplay {
       return;
     }
 
-    const selectors = [
-      'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer button',
-      'ytmusic-responsive-list-item-renderer [aria-label*="Play"]',
-      'ytmusic-responsive-list-item-renderer a.yt-simple-endpoint',
-      'ytmusic-responsive-list-item-renderer #play-button',
-      'button[aria-label*="play" i]',
-      '[title*="play" i]',
-      '.play-button',
-      '[play-button]'
-    ];
-
-    for (const selector of selectors) {
-      try {
-        const elements = document.querySelectorAll(selector);
-        if (elements.length > 0) {
-          const element = elements[0];
-          if (!element || !element.isConnected) {
-            continue;
-          }
-
-          this.log(`Found ${elements.length} elements with selector: ${selector}`);
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-          setTimeout(() => {
-            element.click();
-            this.log('Clicked play element');
-            this.verifyPlayback();
-          }, 500);
-
-          this.stop();
-          return;
-        }
-      } catch (error) {
-        this.error(`Error with selector ${selector}:`, error);
+    if (this.attempts >= 4) {
+      const fallbackPlayElement = this.findFallbackPlayElement();
+      if (fallbackPlayElement) {
+        this.log('No strong candidate yet, using fallback play element');
+        fallbackPlayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => {
+          fallbackPlayElement.click();
+          this.log('Clicked fallback play element');
+          this.verifyPlayback();
+        }, 500);
+        this.stop();
+        return;
       }
     }
 
@@ -437,9 +418,28 @@ class SearchAutoplay {
     }
   }
 
-  findBestSongPlayElement() {
+  ensureSongFilterApplied() {
+    if (this.songFilterApplied) return;
+
+    const filterElements = Array.from(
+      document.querySelectorAll('tp-yt-paper-tab, button, yt-chip-cloud-chip-renderer')
+    );
+
+    const songFilter = filterElements.find((element) => {
+      const text = (element.textContent || '').trim();
+      return /\b(song|songs|lagu)\b/i.test(text);
+    });
+
+    if (songFilter && songFilter instanceof HTMLElement) {
+      this.songFilterApplied = true;
+      songFilter.click();
+      this.log('Applied song filter from search chips');
+    }
+  }
+
+  findBestSongCandidate() {
     const rows = Array.from(document.querySelectorAll('ytmusic-responsive-list-item-renderer')).slice(0, 15);
-    if (!rows.length) return null;
+    if (!rows.length) return undefined;
     const target = RequestProcessor.getSearchTarget();
 
     const candidates = [];
@@ -449,22 +449,65 @@ class SearchAutoplay {
       );
       if (!playElement) continue;
 
-      const rowText = (row.innerText || '').toLowerCase();
+      const rowText = RequestProcessor.normalizeText(row.innerText || '');
       const durationSeconds = this.extractDurationSeconds(rowText);
-      const score = this.scoreRow(rowText, durationSeconds, target);
-      candidates.push({ playElement, score, durationSeconds });
+      const rowMeta = this.extractRowMeta(row, rowText);
+      const score = this.scoreRow(rowMeta, durationSeconds, target);
+      candidates.push({ playElement, score, durationSeconds, rowMeta });
     }
 
-    if (!candidates.length) return null;
+    if (!candidates.length) return undefined;
     candidates.sort((a, b) => b.score - a.score);
 
     const best = candidates[0];
-    this.log(`Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s`);
-    return best.score >= -1 ? best.playElement : null;
+    this.log(
+      `Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
+    );
+    return best.score >= 4 ? best : undefined;
   }
 
-  scoreRow(text, durationSeconds, target) {
+  findFallbackPlayElement() {
+    const rowSelectors = [
+      'ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer',
+      'ytmusic-section-list-renderer ytmusic-responsive-list-item-renderer',
+      'ytmusic-responsive-list-item-renderer'
+    ];
+
+    for (const rowSelector of rowSelectors) {
+      const rows = Array.from(document.querySelectorAll(rowSelector)).slice(0, 10);
+      for (const row of rows) {
+        const rowText = RequestProcessor.normalizeText(row.innerText || '');
+        if (rowText.includes('playlist') || rowText.includes('album') || rowText.includes('podcast')) {
+          continue;
+        }
+
+        const playElement = row.querySelector(
+          'ytmusic-play-button-renderer button, [aria-label*="Play"], #play-button, a.yt-simple-endpoint'
+        );
+        if (playElement) return playElement;
+      }
+    }
+
+    return null;
+  }
+
+  extractRowMeta(row, rowText) {
+    const titleElement = row.querySelector(
+      '#title, .title, yt-formatted-string.title, a.yt-simple-endpoint[title]'
+    );
+    const subtitleElement = row.querySelector(
+      '.secondary-flex-columns, .subtitle, .byline, yt-formatted-string.byline'
+    );
+
+    const title = RequestProcessor.normalizeText(titleElement?.textContent || '');
+    const subtitle = RequestProcessor.normalizeText(subtitleElement?.textContent || '');
+
+    return { title, subtitle, text: rowText };
+  }
+
+  scoreRow(meta, durationSeconds, target) {
     let score = 0;
+    const text = meta.text;
 
     if (durationSeconds >= 90 && durationSeconds <= 420) score += 4;
     else if (durationSeconds > 420) score -= 2;
@@ -480,22 +523,19 @@ class SearchAutoplay {
       if (text.includes(term)) score -= 3;
     }
 
-    if (target) {
-      const titleScore = this.countTokenMatches(text, target.titleTokens);
-      const artistScore = this.countTokenMatches(text, target.artistTokens);
+    if (target && target.titleTokens.length) {
+      const titleScore = this.countTokenMatches(meta.title || text, target.titleTokens);
+      const artistScore = this.countTokenMatches(meta.subtitle || text, target.artistTokens);
+      const titleCoverage = titleScore / target.titleTokens.length;
+      const artistCoverage = target.artistTokens.length > 0
+        ? (artistScore / target.artistTokens.length)
+        : 0;
 
-      if (target.titleTokens.length > 0) {
-        score += titleScore * 4;
-        if (titleScore === 0) score -= 8;
-      }
+      score += Math.round(titleCoverage * 10);
+      if (target.artistTokens.length > 0) score += Math.round(artistCoverage * 8);
 
-      if (target.artistTokens.length > 0) {
-        score += artistScore * 3;
-      }
-
-      if (target.artistTokens.length > 0 && artistScore === 0 && titleScore > 0) {
-        score -= 2;
-      }
+      if (titleCoverage < 0.5) score -= 10;
+      if (target.artistTokens.length > 0 && artistCoverage === 0) score -= 4;
     }
 
     return score;
@@ -651,7 +691,6 @@ class RequestProcessor {
     const fallbackQuery = (request?.query || '').trim();
     const parsedTitle = (request?.parsedTitle || '').trim();
     const parsedArtist = (request?.parsedArtist || '').trim();
-    const normalizedFallback = this.normalizeText(fallbackQuery);
 
     let title = this.normalizeText(parsedTitle);
     let artist = this.normalizeText(parsedArtist);
@@ -676,7 +715,7 @@ class RequestProcessor {
     const title = target.title || '';
     const artist = target.artist || '';
     const base = `${title} ${artist}`.trim() || target.rawQuery;
-    return `${base} official audio -live -mix -playlist -album`;
+    return `${base} official audio song`;
   }
 
   static getSearchTarget() {
@@ -685,8 +724,11 @@ class RequestProcessor {
 
   static normalizeText(value) {
     return (value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
-      .replace(/[()[\]{}]/g, ' ')
+      .replace(/[()[\]{}"'`]/g, ' ')
+      .replace(/[^a-z0-9\s&]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
