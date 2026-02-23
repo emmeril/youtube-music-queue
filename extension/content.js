@@ -444,6 +444,7 @@ class SearchAutoplay {
     const rows = Array.from(document.querySelectorAll('ytmusic-responsive-list-item-renderer')).slice(0, 15);
     if (!rows.length) return null;
 
+    const requestContext = this.getRequestContext();
     const candidates = [];
     for (const row of rows) {
       const playElement = row.querySelector(
@@ -456,7 +457,7 @@ class SearchAutoplay {
         continue;
       }
       const durationSeconds = this.extractDurationSeconds(rowText);
-      const score = this.scoreRow(rowText, durationSeconds);
+      const score = this.scoreRow(rowText, durationSeconds, requestContext);
       candidates.push({ playElement, score, durationSeconds });
     }
 
@@ -470,7 +471,7 @@ class SearchAutoplay {
 
   isBlockedResultText(text) {
     if (!text) return false;
-    return /\bkaraoke\b/i.test(text);
+    return /\b(karaoke|instrumental|backing track|minus one|8d audio)\b/i.test(text);
   }
 
   getElementContextText(element) {
@@ -479,15 +480,15 @@ class SearchAutoplay {
     return text.toLowerCase();
   }
 
-  scoreRow(text, durationSeconds) {
+  scoreRow(text, durationSeconds, requestContext = null) {
     let score = 0;
 
     if (durationSeconds >= 90 && durationSeconds <= 420) score += 4;
     else if (durationSeconds > 420) score -= 2;
     else if (durationSeconds > 0 && durationSeconds < 90) score -= 4;
 
-    const positiveTerms = ['song', 'official', 'audio', 'video', 'single'];
-    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'karaoke'];
+    const positiveTerms = ['song', 'official', 'official audio', 'official video', 'audio', 'single', 'original'];
+    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'reverb', 'nightcore', 'tribute'];
 
     for (const term of positiveTerms) {
       if (text.includes(term)) score += 1;
@@ -496,7 +497,49 @@ class SearchAutoplay {
       if (text.includes(term)) score -= 3;
     }
 
+    if (requestContext) {
+      const titleMatches = this.countWordMatches(text, requestContext.titleTokens);
+      const artistMatches = this.countWordMatches(text, requestContext.artistTokens);
+
+      score += titleMatches * 2;
+      score += artistMatches * 3;
+
+      // Jika request punya artis tapi hasil tidak mengandung artis, turunkan prioritas.
+      if (requestContext.artistTokens.length > 0 && artistMatches === 0) {
+        score -= 4;
+      }
+    }
+
     return score;
+  }
+
+  getRequestContext() {
+    const request = state.lastProcessedRequest || {};
+    const titleSource = request.parsedTitle || request.query || '';
+    const artistSource = request.parsedArtist || '';
+
+    return {
+      titleTokens: this.tokenizeText(titleSource),
+      artistTokens: this.tokenizeText(artistSource)
+    };
+  }
+
+  tokenizeText(value) {
+    return (value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length >= 2)
+      .filter((word) => !['official', 'audio', 'video', 'song', 'original'].includes(word));
+  }
+
+  countWordMatches(text, tokens) {
+    if (!text || !tokens?.length) return 0;
+    let count = 0;
+    for (const token of tokens) {
+      if (text.includes(token)) count++;
+    }
+    return count;
   }
 
   extractDurationSeconds(text) {
@@ -645,7 +688,7 @@ class RequestProcessor {
     const [titlePart, ...artistParts] = query.split('-').map(part => part.trim()).filter(Boolean);
     const artistPart = artistParts.join(' ');
     const base = `${titlePart || query} ${artistPart}`.trim();
-    return `${base} official audio -live -mix -playlist -album -karaoke`;
+    return `${base} official original audio -live -mix -playlist -album -karaoke -cover -remix -slowed -reverb -nightcore`;
   }
 
   static log(...args) {
