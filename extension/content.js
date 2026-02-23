@@ -407,9 +407,13 @@ class SearchAutoplay {
 
     for (const selector of selectors) {
       try {
-        const elements = document.querySelectorAll(selector);
+        const elements = Array.from(document.querySelectorAll(selector));
         if (elements.length > 0) {
-          const element = elements[0];
+          const element = elements.find((el) => {
+            if (!el || !el.isConnected) return false;
+            const contextText = this.getElementContextText(el);
+            return !this.isBlockedResultText(contextText);
+          });
           if (!element || !element.isConnected) {
             continue;
           }
@@ -448,6 +452,9 @@ class SearchAutoplay {
       if (!playElement) continue;
 
       const rowText = (row.innerText || '').toLowerCase();
+      if (this.isBlockedResultText(rowText)) {
+        continue;
+      }
       const durationSeconds = this.extractDurationSeconds(rowText);
       const score = this.scoreRow(rowText, durationSeconds);
       candidates.push({ playElement, score, durationSeconds });
@@ -459,6 +466,17 @@ class SearchAutoplay {
     const best = candidates[0];
     this.log(`Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s`);
     return best.score >= -1 ? best.playElement : null;
+  }
+
+  isBlockedResultText(text) {
+    if (!text) return false;
+    return /\bkaraoke\b/i.test(text);
+  }
+
+  getElementContextText(element) {
+    const row = element.closest('ytmusic-responsive-list-item-renderer');
+    const text = row?.innerText || element.getAttribute('aria-label') || element.getAttribute('title') || '';
+    return text.toLowerCase();
   }
 
   scoreRow(text, durationSeconds) {
@@ -519,6 +537,10 @@ class SearchAutoplay {
 
     const links = document.querySelectorAll('a[href*="/watch"]');
     for (const link of links) {
+      const contextText = this.getElementContextText(link);
+      if (this.isBlockedResultText(contextText)) {
+        continue;
+      }
       if (!link.href.includes('list=')) {
         link.click();
         this.log('Clicked watch link:', link.href);
@@ -623,7 +645,7 @@ class RequestProcessor {
     const [titlePart, ...artistParts] = query.split('-').map(part => part.trim()).filter(Boolean);
     const artistPart = artistParts.join(' ');
     const base = `${titlePart || query} ${artistPart}`.trim();
-    return `${base} official audio -live -mix -playlist -album`;
+    return `${base} official audio -live -mix -playlist -album -karaoke`;
   }
 
   static log(...args) {
