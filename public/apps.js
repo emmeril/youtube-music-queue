@@ -228,22 +228,9 @@
                     return isValid;
                 },
                 
-                // Fungsi untuk menambahkan "official" ke judul jika belum ada
+                // Format query tetap natural agar hasil pencarian lebih relevan
                 prepareQuery(title, artist) {
-                    let judul = title.trim();
-                    const lowerJudul = judul.toLowerCase();
-
-                    if (lowerJudul.includes('original lirik')) {
-                        return `${judul} - ${artist.trim()}`;
-                    }
-
-                    if (lowerJudul.includes('lirik')) {
-                        judul = judul.replace(/lirik/i, 'original lirik');
-                    } else {
-                        judul = `${judul} original lirik`;
-                    }
-
-                    return `${judul} - ${artist.trim()}`;
+                    return `${title.trim()} - ${artist.trim()}`;
                 },
                 
                 // Add new request
@@ -264,7 +251,7 @@
                     try {
                         const isPriorityRequest = this.isAdmin && this.priorityRequest;
 
-                        // Gabungkan judul dan artis menjadi satu query dengan menambahkan "official" jika perlu
+                        // Gabungkan judul dan artis menjadi satu query
                         const combinedQuery = this.prepareQuery(this.newRequest.title, this.newRequest.artist);
                         
                         // Jika admin dan priority request, gunakan endpoint khusus

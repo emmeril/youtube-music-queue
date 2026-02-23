@@ -381,6 +381,19 @@ class SearchAutoplay {
       return;
     }
 
+    const bestPlayElement = this.findBestSongPlayElement();
+    if (bestPlayElement) {
+      this.log('Found best song candidate from search results');
+      bestPlayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        bestPlayElement.click();
+        this.log('Clicked best candidate play element');
+        this.verifyPlayback();
+      }, 500);
+      this.stop();
+      return;
+    }
+
     const selectors = [
       'ytmusic-responsive-list-item-renderer ytmusic-play-button-renderer button',
       'ytmusic-responsive-list-item-renderer [aria-label*="Play"]',
@@ -421,6 +434,70 @@ class SearchAutoplay {
     if (this.attempts >= this.maxAttempts) {
       this.tryAlternativeMethods();
     }
+  }
+
+  findBestSongPlayElement() {
+    const rows = Array.from(document.querySelectorAll('ytmusic-responsive-list-item-renderer')).slice(0, 15);
+    if (!rows.length) return null;
+
+    const candidates = [];
+    for (const row of rows) {
+      const playElement = row.querySelector(
+        'ytmusic-play-button-renderer button, [aria-label*="Play"], #play-button, a.yt-simple-endpoint'
+      );
+      if (!playElement) continue;
+
+      const rowText = (row.innerText || '').toLowerCase();
+      const durationSeconds = this.extractDurationSeconds(rowText);
+      const score = this.scoreRow(rowText, durationSeconds);
+      candidates.push({ playElement, score, durationSeconds });
+    }
+
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.score - a.score);
+
+    const best = candidates[0];
+    this.log(`Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s`);
+    return best.score >= -1 ? best.playElement : null;
+  }
+
+  scoreRow(text, durationSeconds) {
+    let score = 0;
+
+    if (durationSeconds >= 90 && durationSeconds <= 420) score += 4;
+    else if (durationSeconds > 420) score -= 2;
+    else if (durationSeconds > 0 && durationSeconds < 90) score -= 4;
+
+    const positiveTerms = ['song', 'official', 'audio', 'video', 'single'];
+    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'karaoke'];
+
+    for (const term of positiveTerms) {
+      if (text.includes(term)) score += 1;
+    }
+    for (const term of negativeTerms) {
+      if (text.includes(term)) score -= 3;
+    }
+
+    return score;
+  }
+
+  extractDurationSeconds(text) {
+    if (!text) return 0;
+    const matches = text.match(/\b(?:\d{1,2}:){1,2}\d{2}\b/g);
+    if (!matches || !matches.length) return 0;
+
+    for (const value of matches) {
+      const parts = value.split(':').map(Number);
+      if (parts.some(Number.isNaN)) continue;
+
+      if (parts.length === 2) {
+        return (parts[0] * 60) + parts[1];
+      }
+      if (parts.length === 3) {
+        return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+      }
+    }
+    return 0;
   }
 
   async verifyPlayback() {
@@ -527,7 +604,8 @@ class RequestProcessor {
 
     DebugPanel.setStatus(`Processing: ${request.query}`);
 
-    const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(request.query)}`;
+    const searchQuery = this.buildSearchQuery(request.query);
+    const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
 
     if (window.location.href === searchUrl) {
       this.log('Already on search page, starting autoplay');
@@ -536,6 +614,16 @@ class RequestProcessor {
       this.log(`Redirecting to: ${searchUrl}`);
       window.location.href = searchUrl;
     }
+  }
+
+  static buildSearchQuery(rawQuery) {
+    const query = (rawQuery || '').trim();
+    if (!query) return '';
+
+    const [titlePart, ...artistParts] = query.split('-').map(part => part.trim()).filter(Boolean);
+    const artistPart = artistParts.join(' ');
+    const base = `${titlePart || query} ${artistPart}`.trim();
+    return `${base} official audio -live -mix -playlist -album`;
   }
 
   static log(...args) {
