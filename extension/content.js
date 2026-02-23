@@ -488,7 +488,7 @@ class SearchAutoplay {
     else if (durationSeconds > 0 && durationSeconds < 90) score -= 4;
 
     const positiveTerms = ['song', 'official', 'official audio', 'official video', 'audio', 'single', 'original'];
-    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'reverb', 'nightcore', 'tribute'];
+    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'cover', 'remix', 'slowed', 'reverb', 'nightcore', 'tribute'];
 
     for (const term of positiveTerms) {
       if (text.includes(term)) score += 1;
