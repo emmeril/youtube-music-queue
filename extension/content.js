@@ -19,7 +19,8 @@ const state = {
   isProcessingRequest: false,
   debugMode: CONFIG.DEBUG,
   retryCount: 0,
-  maxRetries: 3
+  maxRetries: 3,
+  searchTarget: null
 };
 
 // ================= VIDEO MONITORING =================
@@ -439,6 +440,7 @@ class SearchAutoplay {
   findBestSongPlayElement() {
     const rows = Array.from(document.querySelectorAll('ytmusic-responsive-list-item-renderer')).slice(0, 15);
     if (!rows.length) return null;
+    const target = RequestProcessor.getSearchTarget();
 
     const candidates = [];
     for (const row of rows) {
@@ -449,7 +451,7 @@ class SearchAutoplay {
 
       const rowText = (row.innerText || '').toLowerCase();
       const durationSeconds = this.extractDurationSeconds(rowText);
-      const score = this.scoreRow(rowText, durationSeconds);
+      const score = this.scoreRow(rowText, durationSeconds, target);
       candidates.push({ playElement, score, durationSeconds });
     }
 
@@ -461,7 +463,7 @@ class SearchAutoplay {
     return best.score >= -1 ? best.playElement : null;
   }
 
-  scoreRow(text, durationSeconds) {
+  scoreRow(text, durationSeconds, target) {
     let score = 0;
 
     if (durationSeconds >= 90 && durationSeconds <= 420) score += 4;
@@ -478,7 +480,34 @@ class SearchAutoplay {
       if (text.includes(term)) score -= 3;
     }
 
+    if (target) {
+      const titleScore = this.countTokenMatches(text, target.titleTokens);
+      const artistScore = this.countTokenMatches(text, target.artistTokens);
+
+      if (target.titleTokens.length > 0) {
+        score += titleScore * 4;
+        if (titleScore === 0) score -= 8;
+      }
+
+      if (target.artistTokens.length > 0) {
+        score += artistScore * 3;
+      }
+
+      if (target.artistTokens.length > 0 && artistScore === 0 && titleScore > 0) {
+        score -= 2;
+      }
+    }
+
     return score;
+  }
+
+  countTokenMatches(text, tokens = []) {
+    if (!tokens.length) return 0;
+    let matches = 0;
+    for (const token of tokens) {
+      if (token && text.includes(token)) matches++;
+    }
+    return matches;
   }
 
   extractDurationSeconds(text) {
@@ -604,7 +633,9 @@ class RequestProcessor {
 
     DebugPanel.setStatus(`Processing: ${request.query}`);
 
-    const searchQuery = this.buildSearchQuery(request.query);
+    const searchTarget = this.extractSearchTarget(request);
+    state.searchTarget = searchTarget;
+    const searchQuery = this.buildSearchQuery(searchTarget);
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
 
     if (window.location.href === searchUrl) {
@@ -616,14 +647,57 @@ class RequestProcessor {
     }
   }
 
-  static buildSearchQuery(rawQuery) {
-    const query = (rawQuery || '').trim();
-    if (!query) return '';
+  static extractSearchTarget(request) {
+    const fallbackQuery = (request?.query || '').trim();
+    const parsedTitle = (request?.parsedTitle || '').trim();
+    const parsedArtist = (request?.parsedArtist || '').trim();
+    const normalizedFallback = this.normalizeText(fallbackQuery);
 
-    const [titlePart, ...artistParts] = query.split('-').map(part => part.trim()).filter(Boolean);
-    const artistPart = artistParts.join(' ');
-    const base = `${titlePart || query} ${artistPart}`.trim();
+    let title = this.normalizeText(parsedTitle);
+    let artist = this.normalizeText(parsedArtist);
+
+    if (!title || title === 'tidak diketahui') {
+      const [titlePart, ...artistParts] = fallbackQuery.split('-').map(part => part.trim()).filter(Boolean);
+      title = this.normalizeText(titlePart || fallbackQuery);
+      if (!artist && artistParts.length) artist = this.normalizeText(artistParts.join(' '));
+    }
+
+    return {
+      title,
+      artist,
+      rawQuery: fallbackQuery,
+      titleTokens: this.tokenize(title),
+      artistTokens: this.tokenize(artist)
+    };
+  }
+
+  static buildSearchQuery(target) {
+    if (!target) return '';
+    const title = target.title || '';
+    const artist = target.artist || '';
+    const base = `${title} ${artist}`.trim() || target.rawQuery;
     return `${base} official audio -live -mix -playlist -album`;
+  }
+
+  static getSearchTarget() {
+    return state.searchTarget;
+  }
+
+  static normalizeText(value) {
+    return (value || '')
+      .toLowerCase()
+      .replace(/[()[\]{}]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  static tokenize(value) {
+    if (!value) return [];
+    const stopWords = new Set(['official', 'audio', 'video', 'lyrics', 'lirik', 'feat', 'ft', 'the', 'a']);
+    return value
+      .split(/\s+/)
+      .map(part => part.trim())
+      .filter(part => part.length > 1 && !stopWords.has(part));
   }
 
   static log(...args) {
