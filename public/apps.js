@@ -262,6 +262,8 @@
                     this.isLoading = true;
                     
                     try {
+                        const isPriorityRequest = this.isAdmin && this.priorityRequest;
+
                         // Gabungkan judul dan artis menjadi satu query dengan menambahkan "official" jika perlu
                         const combinedQuery = this.prepareQuery(this.newRequest.title, this.newRequest.artist);
                         
@@ -271,7 +273,7 @@
                         let bodyData = { query: combinedQuery };
                         let requestHeaders = { 'Content-Type': 'application/json' };
                         
-                        if (this.isAdmin && this.priorityRequest) {
+                        if (isPriorityRequest) {
                             endpoint = '/admin/request-first';
                             requestHeaders['x-admin-token'] = this.adminToken;
                         }
@@ -294,7 +296,7 @@
                             
                             await this.loadData();
                             
-                            if (this.isAdmin && this.priorityRequest) {
+                            if (isPriorityRequest) {
                                 this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.queuePosition})`, 'success');
                             } else {
                                 this.showToast(`Ditambahkan ke antrian (Posisi: ${result.queuePosition})`, 'success');
