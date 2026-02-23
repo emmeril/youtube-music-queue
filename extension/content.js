@@ -248,7 +248,7 @@ class SongManager {
   }
 
   static parseTimeText(text) {
-    const timeMatch = text.match(/(\d+):(\d+)/g);
+    const timeMatch = text.match(/\b(?:\d{1,2}:){1,2}\d{1,2}\b/g);
     if (!timeMatch) return 0;
 
     const lastTime = timeMatch[timeMatch.length - 1];
@@ -346,6 +346,10 @@ class SearchAutoplay {
   }
 
   start() {
+    if (this.interval) {
+      return;
+    }
+
     this.log('Starting search autoplay...');
 
     this.interval = setInterval(() => {
@@ -393,6 +397,9 @@ class SearchAutoplay {
         const elements = document.querySelectorAll(selector);
         if (elements.length > 0) {
           const element = elements[0];
+          if (!element || !element.isConnected) {
+            continue;
+          }
 
           this.log(`Found ${elements.length} elements with selector: ${selector}`);
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -549,6 +556,10 @@ class ServerAPI {
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`notifySongEnded failed with status ${response.status}`);
+      }
+
       return response.json();
     } catch (error) {
       console.error('Failed to notify server:', error);
@@ -561,6 +572,10 @@ class ServerAPI {
       const response = await fetch(`${CONFIG.SERVER_URL}/skip-current`, {
         method: 'POST'
       });
+
+      if (!response.ok) {
+        throw new Error(`skipCurrent failed with status ${response.status}`);
+      }
 
       return response.json();
     } catch (error) {

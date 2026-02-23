@@ -229,22 +229,22 @@
                 },
                 
                 // Fungsi untuk menambahkan "official" ke judul jika belum ada
-               prepareQuery(title, artist) {
-    let judul = title.trim();
-    const lowerJudul = judul.toLowerCase();
+                prepareQuery(title, artist) {
+                    let judul = title.trim();
+                    const lowerJudul = judul.toLowerCase();
 
-    if (lowerJudul.includes('original lirik')) {
-        // Sudah ada, tidak perlu diubah
-    } else if (lowerJudul.includes('lirik')) {
-        // Ganti "lirik" pertama dengan "original lirik"
-        judul = judul.replace(/lirik/i, 'original lirik');
-    } else {
-        // Tambahkan "original lirik" di akhir
-        judul = judul + ' original lirik';
-    }
-    
-    return `${judul} - ${artist.trim()}`;
-},
+                    if (lowerJudul.includes('original lirik')) {
+                        return `${judul} - ${artist.trim()}`;
+                    }
+
+                    if (lowerJudul.includes('lirik')) {
+                        judul = judul.replace(/lirik/i, 'original lirik');
+                    } else {
+                        judul = `${judul} original lirik`;
+                    }
+
+                    return `${judul} - ${artist.trim()}`;
+                },
                 
                 // Add new request
                 async addRequest() {
@@ -448,6 +448,7 @@
                     }
                     
                     const newPosition = currentIndex; // Pindah ke posisi sebelumnya
+                    if (newPosition < 1) return;
                     
                     try {
                         const response = await fetch('/admin/move-request', {
@@ -483,6 +484,7 @@
                     }
                     
                     const newPosition = currentIndex + 2; // Pindah ke posisi berikutnya
+                    if (newPosition > this.queue.length) return;
                     
                     try {
                         const response = await fetch('/admin/move-request', {
