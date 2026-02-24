@@ -976,7 +976,7 @@ app.post('/force-next', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.delete('/remove-request/:id', requireAdmin, async (req, res) => {
+app.delete('/remove-request/:id', requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const index = state.requestQueue.findIndex(req => req.id === id);
@@ -1201,7 +1201,7 @@ async function initialize() {
     console.log(`📊 Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
     console.log(`🎵 Current song: ${state.currentSong.title}`);
     console.log(`👑 Super Admin: Full access`);
-    console.log(`👨‍💼 Admin: Can add priority, move, delete (single), no clear all`);
+    console.log(`👨‍💼 Admin: Can add priority and move only (no delete)`);
     console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
     console.log(`🔄 Auto-refresh: Enabled`);
     console.log(`🏷️  Auto "official" tag: Enabled`);

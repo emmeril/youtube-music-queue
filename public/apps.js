@@ -304,10 +304,10 @@
                     }
                 },
                 
-                // Remove request (Admin & Super Admin)
+                // Remove request (Hanya Super Admin)
                 async removeRequest(id) {
-                    if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa menghapus request', 'error');
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa menghapus request', 'error');
                         return;
                     }
                     
@@ -325,9 +325,7 @@
                             await this.loadData();
                             this.showToast(`Dihapus: ${result.removed}`, 'success');
                         } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya admin yang bisa menghapus request.', 'error');
-                            this.isAdmin = false;
-                            this.adminRole = null;
+                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus request.', 'error');
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus request', 'error');
