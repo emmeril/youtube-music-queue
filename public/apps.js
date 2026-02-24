@@ -619,8 +619,10 @@
                             
                             this.showToast('Session admin telah kadaluarsa', 'warning');
                         } else {
+                            this.isAdmin = true;
                             this.adminRole = result.role; // Update role
                             this.adminSessionExpires = result.expiresAt;
+                            localStorage.setItem('adminToken', this.adminToken);
                             localStorage.setItem('adminExpires', this.adminSessionExpires);
                             localStorage.setItem('adminRole', this.adminRole);
                         }

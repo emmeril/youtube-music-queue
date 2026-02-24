@@ -73,6 +73,7 @@ const AppState = sequelize.define('AppState', {
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ================= MIDDLEWARE ADMIN (dengan sliding expiration) =================
@@ -591,8 +592,12 @@ async function addToHistory(song, request = null) {
 
 // ================= API ENDPOINTS =================
 app.post('/admin/login', (req, res) => {
-  const { password } = req.body;
+  const rawPassword = req.body?.password ?? req.body?.adminPassword ?? '';
+  const password = normalizeInput(rawPassword);
   if (isBlank(password)) return res.status(400).json({ error: 'Password diperlukan' });
+  if (isBlank(SUPER_ADMIN_PASSWORD) && isBlank(ADMIN_PASSWORD)) {
+    return res.status(500).json({ error: 'Konfigurasi password admin belum diatur di server' });
+  }
   
   let role = null;
   if (password === SUPER_ADMIN_PASSWORD) role = 'super';
