@@ -270,6 +270,7 @@
             
             // Cek versi aplikasi setiap 5 menit
             setInterval(async () => {
+                if (document.hidden) return;
                 try {
                     const response = await fetch('/version');
                     const data = await response.json();
@@ -309,7 +310,7 @@
         const lastReload = localStorage.getItem('lastReload');
         const now = Date.now();
         
-        if (!lastReload || (now - parseInt(lastReload)) > 3600000) { // 1 jam
+        if (!lastReload || (now - parseInt(lastReload, 10)) > 3600000) { // 1 jam
             console.log('🔄 App refresh due to long session');
             localStorage.setItem('lastReload', now);
             
@@ -581,7 +582,7 @@
             </div>
             
             <!-- Queue Items Desktop -->
-            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin" x-show="queue.length > 0" class="hidden md:block">
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin hidden md:block" x-show="queue.length > 0">
                 <template x-for="(item, index) in queue" :key="item.id">
                     <div class="queue-item bg-gray-800/50 hover:bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
                         <div class="flex items-start justify-between">
@@ -643,7 +644,7 @@
                                 </template>
 
                                 <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center min-w-[70px]">
-                                    <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
+                                    <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
                                 </div>
                                 
                                 <!-- Tombol Hapus (Hanya Super Admin) -->
@@ -661,7 +662,7 @@
             </div>
             
             <!-- Queue Items Mobile -->
-            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-1 scrollbar-thin" x-show="queue.length > 0" class="md:hidden">
+            <div class="space-y-3 max-h-[500px] overflow-y-auto pr-1 scrollbar-thin md:hidden" x-show="queue.length > 0">
                 <template x-for="(item, index) in queue" :key="item.id">
                     <div class="mobile-queue-item bg-gray-800/50 hover:bg-gray-800 p-3 rounded-xl border border-gray-700 hover:border-gray-600 transition-all duration-300 slide-in">
                         <div class="mobile-queue-main">
@@ -705,7 +706,7 @@
                         <!-- Actions Mobile -->
                         <div class="mobile-queue-actions">
                             <div class="text-xs text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center">
-                                <span x-text="'~' + calculateWaitTime(index) + 'm'"></span>
+                                <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
                             </div>
                             
                             <div class="mobile-action-buttons">

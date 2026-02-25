@@ -214,7 +214,7 @@ function calculateConfidence(song) {
 }
 
 function calculateLockDuration(songDuration) {
-  return (songDuration || 180000) + 1;
+  return (songDuration || 180000) + 1000;
 }
 
 function clearSongEndTimeout() {
@@ -287,6 +287,19 @@ function parseNonNegativeInt(value, fallback = 0) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < 0) return fallback;
   return parsed;
+}
+
+function normalizeDurationMs(value, fallback = 180000) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(10000, Math.min(parsed, 3600000));
+}
+
+function normalizeBoolean(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.toLowerCase() === 'true';
+  if (typeof value === 'number') return value === 1;
+  return false;
 }
 
 function getLockRemainingMs(now = Date.now()) {
@@ -445,7 +458,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     success: true,
     request: newRequest,
     queuePosition: position === 'first' ? 1 : state.requestQueue.length,
-    estimatedWait: calculateWaitTime(state.requestQueue.length),
+    estimatedWait: position === 'first' ? 0 : calculateWaitTime(state.requestQueue.length),
     queueLimit: QUEUE_LIMIT,
     remainingSlots: QUEUE_LIMIT - state.requestQueue.length
   };
@@ -499,77 +512,273 @@ async function loadData() {
       scheduleAutoUnlock(remaining);
     }
 
+    // Sinkronkan signature awal agar write pertama tidak redundant
+    lastPersistedQueueSignature = getQueueSignature();
+    lastPersistedHistorySignature = getHistorySignature();
+    lastPersistedAppStateSignature = getAppStateSignature();
+
     console.log(`📂 Loaded ${state.requestQueue.length} requests from database`);
     console.log(`📂 Loaded ${state.history.length} history items`);
   } catch (error) {
     console.error('Error loading data from database:', error);
     state.requestQueue = [];
     state.history = [];
+    lastPersistedQueueSignature = null;
+    lastPersistedHistorySignature = null;
+    lastPersistedAppStateSignature = null;
   }
 }
 
-async function saveRequests() {
-  try {
-    await Request.destroy({ where: {} });
-    
-    const requestsToInsert = state.requestQueue.map((req, index) => ({
-      id: req.id,
-      query: req.query,
-      time: req.time,
-      status: req.status || 'pending',
-      addedBy: req.addedBy,
-      title: req.title,
-      artist: req.artist,
-      userAgent: req.userAgent,
-      originalQuery: req.originalQuery,
-      isPriority: req.isPriority || false,
-      addedByAdmin: req.addedByAdmin || false,
-      queueOrder: index
-    }));
-    
-    if (requestsToInsert.length > 0) {
-      await Request.bulkCreate(requestsToInsert);
+let saveRequestsInFlight = null;
+let saveRequestsPending = false;
+let saveHistoryInFlight = null;
+let saveHistoryPending = false;
+let saveAppStateInFlight = null;
+let saveAppStatePending = false;
+let lastPersistedQueueSignature = null;
+let lastPersistedHistorySignature = null;
+let lastPersistedAppStateSignature = null;
+const LATENCY_SAMPLE_LIMIT = 200;
+const persistenceMetrics = {
+  requests: { executed: 0, skipped: 0, errors: 0, lastDurationMs: 0, lastRunAt: 0, latencySamples: [] },
+  history: { executed: 0, skipped: 0, errors: 0, lastDurationMs: 0, lastRunAt: 0, latencySamples: [] },
+  appState: { executed: 0, skipped: 0, errors: 0, lastDurationMs: 0, lastRunAt: 0, latencySamples: [] }
+};
+
+function getPercentile(values, percentile) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = Math.ceil((percentile / 100) * sorted.length) - 1;
+  const index = Math.max(0, Math.min(position, sorted.length - 1));
+  return sorted[index];
+}
+
+function recordPersistenceLatency(metric, durationMs) {
+  metric.lastDurationMs = durationMs;
+  metric.lastRunAt = Date.now();
+  metric.latencySamples.push(durationMs);
+  if (metric.latencySamples.length > LATENCY_SAMPLE_LIMIT) {
+    metric.latencySamples.shift();
+  }
+}
+
+function buildPersistenceMetricSnapshot(metric) {
+  const samples = metric.latencySamples;
+  const maxLatency = samples.length > 0 ? Math.max(...samples) : 0;
+  return {
+    executed: metric.executed,
+    skipped: metric.skipped,
+    errors: metric.errors,
+    lastDurationMs: metric.lastDurationMs,
+    lastRunAt: metric.lastRunAt,
+    latency: {
+      sampleCount: samples.length,
+      p95Ms: getPercentile(samples, 95),
+      p99Ms: getPercentile(samples, 99),
+      maxMs: maxLatency
     }
-    
+  };
+}
+
+function getPersistenceMetricsSnapshot() {
+  return {
+    requests: buildPersistenceMetricSnapshot(persistenceMetrics.requests),
+    history: buildPersistenceMetricSnapshot(persistenceMetrics.history),
+    appState: buildPersistenceMetricSnapshot(persistenceMetrics.appState)
+  };
+}
+
+function getQueueSignature() {
+  return JSON.stringify(state.requestQueue.map((req, index) => ({
+    id: req.id,
+    query: req.query,
+    time: req.time,
+    status: req.status || 'pending',
+    addedBy: req.addedBy,
+    title: req.title,
+    artist: req.artist,
+    userAgent: req.userAgent,
+    originalQuery: req.originalQuery,
+    isPriority: Boolean(req.isPriority),
+    addedByAdmin: Boolean(req.addedByAdmin),
+    queueOrder: index
+  })));
+}
+
+function getHistorySignature() {
+  return JSON.stringify(state.history.slice(0, MAX_HISTORY_LIMIT).map(item => ({
+    id: item.id,
+    timestamp: item.timestamp,
+    duration: item.duration
+  })));
+}
+
+function getAppStateSignature() {
+  return JSON.stringify({
+    activeRequest: state.activeRequest,
+    requestLockUntil: state.requestLockUntil,
+    currentSong: state.currentSong,
+    stats: state.stats,
+    requestStartTime: state.requestStartTime,
+    originalLockDuration: state.originalLockDuration
+  });
+}
+
+function buildAppStatePayload() {
+  return {
+    key: 'state',
+    activeRequest: state.activeRequest,
+    requestLockUntil: state.requestLockUntil,
+    currentSong: state.currentSong,
+    stats: state.stats,
+    requestStartTime: state.requestStartTime,
+    originalLockDuration: state.originalLockDuration
+  };
+}
+
+async function persistAppStateNow() {
+  const startedAt = Date.now();
+  const appStateSignature = getAppStateSignature();
+  if (appStateSignature === lastPersistedAppStateSignature) {
+    persistenceMetrics.appState.skipped++;
+    return;
+  }
+
+  await AppState.upsert(buildAppStatePayload());
+
+  persistenceMetrics.appState.executed++;
+  recordPersistenceLatency(persistenceMetrics.appState, Date.now() - startedAt);
+  lastPersistedAppStateSignature = appStateSignature;
+}
+
+async function persistRequestsNow() {
+  const startedAt = Date.now();
+  const queueSignature = getQueueSignature();
+  const appStateSignature = getAppStateSignature();
+  if (queueSignature === lastPersistedQueueSignature) {
+    persistenceMetrics.requests.skipped++;
     await saveAppState();
+    return;
+  }
+
+  const requestsToInsert = state.requestQueue.map((req, index) => ({
+    id: req.id,
+    query: req.query,
+    time: req.time,
+    status: req.status || 'pending',
+    addedBy: req.addedBy,
+    title: req.title,
+    artist: req.artist,
+    userAgent: req.userAgent,
+    originalQuery: req.originalQuery,
+    isPriority: req.isPriority || false,
+    addedByAdmin: req.addedByAdmin || false,
+    queueOrder: index
+  }));
+
+  await sequelize.transaction(async (transaction) => {
+    await Request.destroy({ where: {}, transaction });
+
+    if (requestsToInsert.length > 0) {
+      await Request.bulkCreate(requestsToInsert, { transaction });
+    }
+
+    await AppState.upsert(buildAppStatePayload(), { transaction });
+  });
+
+  persistenceMetrics.requests.executed++;
+  recordPersistenceLatency(persistenceMetrics.requests, Date.now() - startedAt);
+  lastPersistedQueueSignature = queueSignature;
+  lastPersistedAppStateSignature = appStateSignature;
+}
+
+async function persistHistoryNow() {
+  const startedAt = Date.now();
+  const historySignature = getHistorySignature();
+  if (historySignature === lastPersistedHistorySignature) {
+    persistenceMetrics.history.skipped++;
+    return;
+  }
+
+  const historyToSave = state.history.slice(0, MAX_HISTORY_LIMIT);
+  await History.destroy({ where: {} });
+  
+  const historyToInsert = historyToSave.map(h => ({
+    id: h.id,
+    song: h.song,
+    request: h.request,
+    timestamp: h.timestamp,
+    duration: h.duration
+  }));
+  
+  if (historyToInsert.length > 0) {
+    await History.bulkCreate(historyToInsert);
+  }
+
+  persistenceMetrics.history.executed++;
+  recordPersistenceLatency(persistenceMetrics.history, Date.now() - startedAt);
+  lastPersistedHistorySignature = historySignature;
+}
+
+async function saveRequests() {
+  saveRequestsPending = true;
+  if (!saveRequestsInFlight) {
+    saveRequestsInFlight = (async () => {
+      while (saveRequestsPending) {
+        saveRequestsPending = false;
+        await persistRequestsNow();
+      }
+    })().finally(() => {
+      saveRequestsInFlight = null;
+    });
+  }
+
+  try {
+    await saveRequestsInFlight;
   } catch (error) {
+    persistenceMetrics.requests.errors++;
     console.error('Error saving requests:', error);
   }
 }
 
 async function saveHistory() {
+  saveHistoryPending = true;
+  if (!saveHistoryInFlight) {
+    saveHistoryInFlight = (async () => {
+      while (saveHistoryPending) {
+        saveHistoryPending = false;
+        await persistHistoryNow();
+      }
+    })().finally(() => {
+      saveHistoryInFlight = null;
+    });
+  }
+
   try {
-    const historyToSave = state.history.slice(0, 100);
-    await History.destroy({ where: {} });
-    
-    const historyToInsert = historyToSave.map(h => ({
-      id: h.id,
-      song: h.song,
-      request: h.request,
-      timestamp: h.timestamp,
-      duration: h.duration
-    }));
-    
-    if (historyToInsert.length > 0) {
-      await History.bulkCreate(historyToInsert);
-    }
+    await saveHistoryInFlight;
   } catch (error) {
+    persistenceMetrics.history.errors++;
     console.error('Error saving history:', error);
   }
 }
 
 async function saveAppState() {
-  try {
-    await AppState.upsert({
-      key: 'state',
-      activeRequest: state.activeRequest,
-      requestLockUntil: state.requestLockUntil,
-      currentSong: state.currentSong,
-      stats: state.stats,
-      requestStartTime: state.requestStartTime,
-      originalLockDuration: state.originalLockDuration
+  saveAppStatePending = true;
+  if (!saveAppStateInFlight) {
+    saveAppStateInFlight = (async () => {
+      while (saveAppStatePending) {
+        saveAppStatePending = false;
+        await persistAppStateNow();
+      }
+    })().finally(() => {
+      saveAppStateInFlight = null;
     });
+  }
+
+  try {
+    await saveAppStateInFlight;
   } catch (error) {
+    persistenceMetrics.appState.errors++;
     console.error('Error saving app state:', error);
   }
 }
@@ -646,7 +855,8 @@ app.post('/update', async (req, res) => {
   try {
     const { title, artist, duration, isNewSong, url } = req.body;
     const now = Date.now();
-    const validDuration = Math.max(10000, Math.min(duration || 180000, 3600000));
+    const validDuration = normalizeDurationMs(duration, 180000);
+    const isNewSongFlag = normalizeBoolean(isNewSong);
     const confidence = calculateConfidence({ title, artist, duration: validDuration });
     const previousSong = { ...state.currentSong };
     
@@ -663,7 +873,7 @@ app.post('/update', async (req, res) => {
     console.log(`📊 Song updated: ${title} - ${artist} (${formatDuration(validDuration)}, ${confidence}%)`);
     
     if (state.activeRequest && state.requestLockUntil > 0) {
-      if (isNewSong || Math.abs(validDuration - (previousSong.duration || 0)) > 5000) {
+      if (isNewSongFlag || Math.abs(validDuration - (previousSong.duration || 0)) > 5000) {
         const newLockDuration = calculateLockDuration(validDuration);
         state.requestLockUntil = now + newLockDuration;
         state.originalLockDuration = newLockDuration;
@@ -672,7 +882,7 @@ app.post('/update', async (req, res) => {
       }
     }
     
-    if (isNewSong && state.activeRequest) {
+    if (isNewSongFlag && state.activeRequest) {
       await addToHistory(previousSong, state.activeRequest);
     }
     
@@ -1081,6 +1291,7 @@ app.get('/stats', (req, res) => {
     remainingSlots,
     historyCount: state.history.length,
     stats: state.stats,
+    persistence: getPersistenceMetricsSnapshot(),
     isLocked,
     lockRemaining
   });
@@ -1138,6 +1349,7 @@ app.get('/version', (req, res) => {
 app.get('/health', (req, res) => {
   const { isLocked, lockRemaining } = getLockState();
   const { queueLimit } = getQueueMeta();
+  const persistence = getPersistenceMetricsSnapshot();
   res.json({
     status: 'healthy',
     timestamp: Date.now(),
@@ -1145,6 +1357,7 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     queueLimit,
     currentQueue: state.requestQueue.length,
+    persistence,
     isLocked,
     lockRemaining
   });

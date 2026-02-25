@@ -38,6 +38,8 @@
                 isLoading: false,
                 isRefreshing: false,
                 showSettings: false,
+                isPageVisible: true,
+                isPollingData: false,
                 
                 // Admin State
                 isAdmin: false,
@@ -56,6 +58,16 @@
                 
                 // Initialize
                 async init() {
+                    this.isPageVisible = !document.hidden;
+
+                    document.addEventListener('visibilitychange', async () => {
+                        this.isPageVisible = !document.hidden;
+                        if (this.isPageVisible) {
+                            await this.loadData();
+                            await this.checkVersion();
+                        }
+                    });
+
                     // Inisialisasi event listener untuk toast dari service worker
                     document.addEventListener('show-toast', (event) => {
                         this.showToast(event.detail.message, event.detail.type);
@@ -80,6 +92,7 @@
                     
                     // Auto refresh data every 3 seconds
                     setInterval(async () => {
+                        if (!this.isPageVisible) return;
                         await this.loadData();
                     }, 3000);
                     
@@ -90,25 +103,48 @@
                     
                     // Cek admin session setiap menit
                     setInterval(() => {
-                        if (this.isAdmin) {
+                        if (this.isAdmin && this.isPageVisible) {
                             this.checkAdminSession();
                         }
                     }, 60000);
                     
                     // Cek versi aplikasi setiap 2 menit
                     setInterval(async () => {
+                        if (!this.isPageVisible) return;
                         await this.checkVersion();
                     }, 120000);
+                },
+
+                getAdminHeaders(includeJson = false) {
+                    const headers = {};
+                    if (includeJson) headers['Content-Type'] = 'application/json';
+                    if (this.isAdmin && this.adminToken) {
+                        headers['x-admin-token'] = this.adminToken;
+                    }
+                    return headers;
+                },
+
+                clearAdminSession(showExpiredToast = false) {
+                    this.isAdmin = false;
+                    this.adminToken = null;
+                    this.adminRole = null;
+                    this.adminSessionExpires = null;
+
+                    localStorage.removeItem('adminToken');
+                    localStorage.removeItem('adminRole');
+                    localStorage.removeItem('adminExpires');
+
+                    if (showExpiredToast) {
+                        this.showToast('Session admin telah kadaluarsa', 'warning');
+                    }
                 },
                 
                 // Load all data
                 async loadData() {
+                    if (this.isPollingData) return;
+                    this.isPollingData = true;
                     try {
-                        // Tambahkan admin token jika ada
-                        const headers = {};
-                        if (this.isAdmin && this.adminToken) {
-                            headers['x-admin-token'] = this.adminToken;
-                        }
+                        const headers = this.getAdminHeaders();
                         
                         const [statusRes, queueRes] = await Promise.all([
                             fetch('/status', { headers }).catch(() => null),
@@ -138,6 +174,8 @@
                     } catch (error) {
                         console.error('Error loading data:', error);
                         this.isConnected = false;
+                    } finally {
+                        this.isPollingData = false;
                     }
                 },
                 
@@ -258,11 +296,10 @@
                         let endpoint = '/request-song';
                         let method = 'POST';
                         let bodyData = { query: combinedQuery };
-                        let requestHeaders = { 'Content-Type': 'application/json' };
+                        let requestHeaders = this.getAdminHeaders(true);
                         
                         if (isPriorityRequest) {
                             endpoint = '/admin/request-first';
-                            requestHeaders['x-admin-token'] = this.adminToken;
                         }
                         
                         const response = await fetch(endpoint, {
@@ -291,8 +328,7 @@
                         } else {
                             if (response.status === 403) {
                                 this.showToast('Akses ditolak. Hanya admin yang bisa menambahkan prioritas.', 'error');
-                                this.isAdmin = false;
-                                this.adminRole = null;
+                                this.clearAdminSession();
                             } else {
                                 this.showToast(`Error: ${result.error}`, 'error');
                             }
@@ -316,7 +352,7 @@
                     try {
                         const response = await fetch(`/remove-request/${id}`, {
                             method: 'DELETE',
-                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
+                            headers: this.getAdminHeaders()
                         });
                         
                         const result = await response.json();
@@ -326,6 +362,7 @@
                             this.showToast(`Dihapus: ${result.removed}`, 'success');
                         } else if (response.status === 403) {
                             this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus request.', 'error');
+                            this.clearAdminSession();
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus request', 'error');
@@ -344,7 +381,7 @@
                     try {
                         const response = await fetch('/skip-current', {
                             method: 'POST',
-                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
+                            headers: this.getAdminHeaders()
                         });
                         
                         const result = await response.json();
@@ -354,8 +391,7 @@
                             this.showToast('Request berhasil diskip', 'success');
                         } else if (response.status === 403) {
                             this.showToast('Akses ditolak. Hanya Super Admin yang bisa skip.', 'error');
-                            this.isAdmin = false;
-                            this.adminRole = null;
+                            this.clearAdminSession();
                         }
                     } catch (error) {
                         this.showToast('Gagal skip request', 'error');
@@ -374,7 +410,7 @@
                     try {
                         const response = await fetch('/force-next', {
                             method: 'POST',
-                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
+                            headers: this.getAdminHeaders()
                         });
                         
                         if (response.ok) {
@@ -382,8 +418,7 @@
                             this.showToast('Force skip berhasil', 'success');
                         } else if (response.status === 403) {
                             this.showToast('Akses ditolak. Hanya Super Admin yang bisa force next.', 'error');
-                            this.isAdmin = false;
-                            this.adminRole = null;
+                            this.clearAdminSession();
                         }
                     } catch (error) {
                         this.showToast('Gagal force skip', 'error');
@@ -407,7 +442,7 @@
                     try {
                         const response = await fetch('/clear-requests', {
                             method: 'DELETE',
-                            headers: this.isAdmin ? { 'x-admin-token': this.adminToken } : {}
+                            headers: this.getAdminHeaders()
                         });
                         
                         const result = await response.json();
@@ -417,8 +452,7 @@
                             this.showToast(`Dihapus ${result.clearedCount} request`, 'success');
                         } else if (response.status === 403) {
                             this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus antrian.', 'error');
-                            this.isAdmin = false;
-                            this.adminRole = null;
+                            this.clearAdminSession();
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus antrian', 'error');
@@ -438,10 +472,7 @@
                     try {
                         const response = await fetch('/admin/move-request', {
                             method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'x-admin-token': this.adminToken 
-                            },
+                            headers: this.getAdminHeaders(true),
                             body: JSON.stringify({ 
                                 requestId, 
                                 newPosition 
@@ -453,6 +484,9 @@
                         if (response.ok) {
                             await this.loadData();
                             this.showToast(result.message, 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Session admin tidak valid. Silakan login ulang.', 'error');
+                            this.clearAdminSession();
                         } else {
                             this.showToast(result.error, 'error');
                         }
@@ -474,10 +508,7 @@
                     try {
                         const response = await fetch('/admin/move-request', {
                             method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'x-admin-token': this.adminToken 
-                            },
+                            headers: this.getAdminHeaders(true),
                             body: JSON.stringify({ 
                                 requestId, 
                                 newPosition 
@@ -489,6 +520,9 @@
                         if (response.ok) {
                             await this.loadData();
                             this.showToast(result.message, 'success');
+                        } else if (response.status === 403) {
+                            this.showToast('Session admin tidak valid. Silakan login ulang.', 'error');
+                            this.clearAdminSession();
                         } else {
                             this.showToast(result.error, 'error');
                         }
@@ -573,19 +607,11 @@
                         if (this.adminToken) {
                             await fetch('/admin/logout', {
                                 method: 'POST',
-                                headers: { 'x-admin-token': this.adminToken }
+                                headers: this.getAdminHeaders()
                             });
                         }
                         
-                        this.isAdmin = false;
-                        this.adminToken = null;
-                        this.adminRole = null;
-                        this.adminSessionExpires = null;
-                        
-                        // Hapus dari localStorage
-                        localStorage.removeItem('adminToken');
-                        localStorage.removeItem('adminRole');
-                        localStorage.removeItem('adminExpires');
+                        this.clearAdminSession();
                         
                         this.showToast('Logout admin berhasil', 'info');
                         
@@ -601,23 +627,13 @@
                     
                     try {
                         const response = await fetch('/admin/status', {
-                            headers: { 'x-admin-token': this.adminToken }
+                            headers: this.getAdminHeaders()
                         });
                         
                         const result = await response.json();
                         
                         if (!result.isAdmin) {
-                            // Session expired
-                            this.isAdmin = false;
-                            this.adminToken = null;
-                            this.adminRole = null;
-                            this.adminSessionExpires = null;
-                            
-                            localStorage.removeItem('adminToken');
-                            localStorage.removeItem('adminRole');
-                            localStorage.removeItem('adminExpires');
-                            
-                            this.showToast('Session admin telah kadaluarsa', 'warning');
+                            this.clearAdminSession(true);
                         } else {
                             this.isAdmin = true;
                             this.adminRole = result.role; // Update role
@@ -674,9 +690,6 @@
                     if (diff < 60000) return 'Baru saja';
                     
                     if (date.toDateString() === now.toDateString()) {
-                        if (mobile) {
-                            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        }
                         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     }
                     
