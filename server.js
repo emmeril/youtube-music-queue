@@ -847,7 +847,7 @@ app.get('/admin/status', (req, res) => {
     isAdmin,
     role,
     expiresAt,
-    remainingTime: isAdmin ? expiresAt - Date.now() : 0
+    remainingTime: isAdmin ? Math.max(0, expiresAt - Date.now()) : 0
   });
 });
 

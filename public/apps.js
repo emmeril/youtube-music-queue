@@ -77,12 +77,15 @@
                     const savedToken = localStorage.getItem('adminToken');
                     const savedExpires = localStorage.getItem('adminExpires');
                     const savedRole = localStorage.getItem('adminRole');
+                    const parsedExpires = Number.parseInt(savedExpires || '', 10);
                     
-                    if (savedToken && savedExpires && Date.now() < parseInt(savedExpires)) {
+                    if (savedToken && Number.isFinite(parsedExpires) && Date.now() < parsedExpires) {
                         this.adminToken = savedToken;
                         this.adminRole = savedRole;
-                        this.adminSessionExpires = parseInt(savedExpires);
+                        this.adminSessionExpires = parsedExpires;
                         await this.checkAdminSession();
+                    } else if (savedToken || savedExpires || savedRole) {
+                        this.clearAdminSession();
                     }
                     
                     await this.loadData();
@@ -118,7 +121,7 @@
                 getAdminHeaders(includeJson = false) {
                     const headers = {};
                     if (includeJson) headers['Content-Type'] = 'application/json';
-                    if (this.isAdmin && this.adminToken) {
+                    if (this.adminToken) {
                         headers['x-admin-token'] = this.adminToken;
                     }
                     return headers;
