@@ -481,13 +481,16 @@ class SearchAutoplay {
           continue;
         }
 
+        // Periksa durasi, lewati jika terlalu panjang
+        const durationSeconds = this.extractDurationSeconds(rowText);
+        if (durationSeconds > 420) continue; // skip lagu panjang
+
         const playElement = row.querySelector(
           'ytmusic-play-button-renderer button, [aria-label*="Play"], #play-button, a.yt-simple-endpoint'
         );
         if (playElement) return playElement;
       }
     }
-
     return null;
   }
 
@@ -509,9 +512,16 @@ class SearchAutoplay {
     let score = 0;
     const text = meta.text;
 
-    if (durationSeconds >= 90 && durationSeconds <= 420) score += 4;
-    else if (durationSeconds > 420) score -= 2;
-    else if (durationSeconds > 0 && durationSeconds < 90) score -= 4;
+    // Penalti durasi diperketat
+    if (durationSeconds >= 90 && durationSeconds <= 420) {
+      score += 4;
+    } else if (durationSeconds > 420) {
+      score -= 10; // penalti besar untuk durasi panjang
+    } else if (durationSeconds > 0 && durationSeconds < 90) {
+      score -= 4;
+    } else if (durationSeconds === 0) {
+      score -= 5; // penalti untuk durasi tidak terdeteksi
+    }
 
     const positiveTerms = ['song', 'official', 'audio', 'video', 'single'];
     const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'karaoke'];
