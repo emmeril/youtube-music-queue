@@ -11,6 +11,7 @@ const APP_VERSION = '2.3.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
+const MAX_REQUESTS_PER_ARTIST = 3;
 const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
@@ -94,6 +95,11 @@ function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
   }
 
   return { ok: true, session: adminSession };
+}
+
+function isAdminSessionTokenValid(sessionToken) {
+  if (!sessionToken || !adminSession || adminSession.token !== sessionToken) return false;
+  return Date.now() <= adminSession.expires;
 }
 
 function sendAdminDenied(res) {
@@ -277,6 +283,33 @@ function sanitizeInput(text) {
   return text.trim().replace(/\s+/g, ' ').replace(/[<>{}]/g, '');
 }
 
+function normalizeComparisonText(value) {
+  return sanitizeInput(value).toLowerCase();
+}
+
+function looksLikeArtistName(value) {
+  const cleaned = sanitizeInput(value);
+  if (!cleaned || cleaned.length > 60) return false;
+  if (/[0-9()[\]{}]/.test(cleaned)) return false;
+  const words = cleaned.split(' ').filter(Boolean);
+  if (words.length === 0 || words.length > 5) return false;
+  return words.every(word => /^[a-zA-Z][a-zA-Z'.-]*$/.test(word));
+}
+
+function looksLikeSongTitle(value) {
+  const cleaned = sanitizeInput(value);
+  if (!cleaned) return false;
+  if (/[0-9()[\]{}]/.test(cleaned)) return true;
+  if (/-/.test(cleaned)) return true;
+  if (/\b(feat\.?|ft\.?|official|lyrics?|lirik|remix|cover|live|version|ost|soundtrack|video)\b/i.test(cleaned)) return true;
+  const words = cleaned.split(' ').filter(Boolean);
+  return words.length >= 3;
+}
+
+function isLikelySwappedTitleArtist(title, artist) {
+  return looksLikeArtistName(title) && looksLikeSongTitle(artist);
+}
+
 function getQueueRequestErrorStatus(error = '') {
   if (error.includes('penuh')) return 429;
   if (error.includes('sudah ada')) return 409;
@@ -339,8 +372,10 @@ function logQueueCount() {
   console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
 }
 
-function validateSongRequest(query) {
+function validateSongRequest(query, options = {}) {
+  const { allowLikelySwapped = false } = options;
   const errors = [];
+  const warnings = [];
   const trimmed = normalizeInput(query);
   if (!trimmed) errors.push('Query tidak boleh kosong');
   if (trimmed.length > 200) errors.push('Query terlalu panjang (maksimal 200 karakter)');
@@ -354,6 +389,14 @@ function validateSongRequest(query) {
   if (parsed.title && parsed.title.length > 100) errors.push('Judul lagu maksimal 100 karakter');
   if (parsed.artist && parsed.artist.length > 100) errors.push('Nama artis maksimal 100 karakter');
   if (parsed.title && /^\d+$/.test(parsed.title)) errors.push('Judul lagu tidak boleh hanya angka');
+  if (parsed.title && parsed.artist && isLikelySwappedTitleArtist(parsed.title, parsed.artist)) {
+    const swappedMessage = 'Judul dan nama artis terdeteksi tertukar. Format benar: Judul Lagu - Nama Artis';
+    if (allowLikelySwapped) {
+      warnings.push(swappedMessage);
+    } else {
+      errors.push(swappedMessage);
+    }
+  }
   
   const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
   if (parsed.title && !validCharsRegex.test(parsed.title)) errors.push('Judul lagu mengandung karakter tidak valid');
@@ -362,6 +405,7 @@ function validateSongRequest(query) {
   return {
     isValid: errors.length === 0,
     errors,
+    warnings,
     title: parsed.title,
     artist: parsed.artist
   };
@@ -408,16 +452,19 @@ function createRequestObject(query, ip, userAgent, isPriority = false, addedByAd
 }
 
 // Fungsi untuk menambahkan request ke antrian (dengan validasi dan pengecekan duplicate)
-async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false) {
+async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false, options = {}) {
+  const { allowLikelySwapped = false } = options;
   const normalizedQuery = normalizeInput(query);
 
   // Validasi
-  const validation = validateSongRequest(normalizedQuery);
+  const validation = validateSongRequest(normalizedQuery, { allowLikelySwapped });
   if (!validation.isValid) {
     return { success: false, error: validation.errors[0], details: validation.errors };
   }
   
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
+  const parsedQuery = parseSongQuery(queryWithOfficial);
+  const requestedArtist = normalizeComparisonText(parsedQuery.artist);
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -443,6 +490,21 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   if (recentDuplicate) {
     return { success: false, error: 'Lagu ini baru saja diputar. Tunggu 10 menit.', cooldown: '10 menit' };
   }
+
+  // Batas maksimal lagu per artis dalam antrian
+  const sameArtistCount = state.requestQueue.filter((queuedRequest) => {
+    const queuedArtist = normalizeComparisonText(queuedRequest.artist || parseSongQuery(queuedRequest.query).artist);
+    return queuedArtist && queuedArtist === requestedArtist;
+  }).length;
+
+  if (sameArtistCount >= MAX_REQUESTS_PER_ARTIST) {
+    return {
+      success: false,
+      error: `Maksimal ${MAX_REQUESTS_PER_ARTIST} lagu untuk artis yang sama dalam antrian`,
+      artist: parsedQuery.artist,
+      limit: MAX_REQUESTS_PER_ARTIST
+    };
+  }
   
   const newRequest = createRequestObject(normalizedQuery, ip, userAgent, isPriority, addedByAdmin);
   
@@ -457,6 +519,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   return {
     success: true,
     request: newRequest,
+    warnings: validation.warnings || [],
     queuePosition: position === 'first' ? 1 : state.requestQueue.length,
     estimatedWait: position === 'first' ? 0 : calculateWaitTime(state.requestQueue.length),
     queueLimit: QUEUE_LIMIT,
@@ -991,13 +1054,15 @@ app.post('/request-song', async (req, res) => {
       return res.status(400).json({ error: 'Query tidak boleh kosong' });
     }
     
+    const allowLikelySwapped = isAdminSessionTokenValid(req.headers['x-admin-token']);
     const result = await addRequestToQueue(
       query, 
       req.ip, 
       req.headers['user-agent'], 
       'last', 
       false, 
-      false
+      false,
+      { allowLikelySwapped }
     );
     
     if (!result.success) {
@@ -1012,6 +1077,7 @@ app.post('/request-song', async (req, res) => {
       success: true,
       message: 'Request berhasil ditambahkan',
       request: result.request,
+      warnings: result.warnings || [],
       queuePosition: result.queuePosition,
       estimatedWait: result.estimatedWait,
       queueLimit: result.queueLimit,
@@ -1310,7 +1376,8 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
       req.headers['user-agent'], 
       'first', 
       true, 
-      true
+      true,
+      { allowLikelySwapped: true }
     );
     
     if (!result.success) {
@@ -1325,6 +1392,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
       success: true,
       message: 'Priority request berhasil ditambahkan di posisi pertama',
       request: result.request,
+      warnings: result.warnings || [],
       queuePosition: 1,
       estimatedWait: 0,
       queueLimit: result.queueLimit,
