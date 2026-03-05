@@ -262,8 +262,36 @@
                     return words.length >= 3;
                 },
 
+                looksLikePersonFullName(value) {
+                    const cleaned = this.sanitizeInput(value);
+                    if (!cleaned) return false;
+                    if (/[0-9()[\]{}]/.test(cleaned)) return false;
+                    const words = cleaned.split(' ').filter(Boolean);
+                    if (words.length < 2 || words.length > 4) return false;
+                    const nonNameWords = new Set([
+                        'dan', 'yang', 'di', 'ke', 'untuk', 'dengan',
+                        'and', 'the', 'of', 'in', 'on', 'to', 'for'
+                    ]);
+                    return words.every((word) => {
+                        const lower = word.toLowerCase();
+                        if (nonNameWords.has(lower)) return false;
+                        return /^[a-zA-Z][a-zA-Z'.-]*$/.test(word);
+                    });
+                },
+
+                isLikelySingleWordSongTitle(value) {
+                    const cleaned = this.sanitizeInput(value);
+                    if (!cleaned || cleaned.includes(' ')) return false;
+                    if (cleaned.length < 3 || cleaned.length > 40) return false;
+                    return /^[a-zA-Z0-9'.-]+$/.test(cleaned);
+                },
+
                 isLikelySwappedTitleArtist(title, artist) {
-                    return this.looksLikeArtistName(title) && this.looksLikeSongTitle(artist);
+                    const titleLooksArtist = this.looksLikeArtistName(title);
+                    const artistLooksSong = this.looksLikeSongTitle(artist);
+                    if (titleLooksArtist && artistLooksSong) return true;
+                    if (this.looksLikePersonFullName(title) && this.isLikelySingleWordSongTitle(artist)) return true;
+                    return false;
                 },
                 
                 // Validasi input di frontend
@@ -352,15 +380,11 @@
 
                     // Validasi 7: Deteksi kemungkinan field judul dan artis tertukar
                     if (title && artist && this.isLikelySwappedTitleArtist(title, artist)) {
-                        if (this.isAdmin) {
-                            this.showToast('Peringatan admin: Judul dan artis terdeteksi tertukar, request tetap diproses.', 'warning');
-                        } else {
-                            this.showTitleError = true;
-                            this.showArtistError = true;
-                            this.titleError = 'Sepertinya field tertukar, isi judul lagu di sini';
-                            this.artistError = 'Sepertinya field tertukar, isi nama artis di sini';
-                            isValid = false;
-                        }
+                        this.showTitleError = true;
+                        this.showArtistError = true;
+                        this.titleError = 'Sepertinya field tertukar, isi judul lagu di sini';
+                        this.artistError = 'Sepertinya field tertukar, isi nama artis di sini';
+                        isValid = false;
                     }
                     
                     return isValid;

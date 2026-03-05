@@ -323,8 +323,39 @@ function looksLikeSongTitle(value) {
   return words.length >= 3;
 }
 
+function looksLikePersonFullName(value) {
+  const cleaned = sanitizeInput(value);
+  if (!cleaned) return false;
+  if (/[0-9()[\]{}]/.test(cleaned)) return false;
+  const words = cleaned.split(' ').filter(Boolean);
+  if (words.length < 2 || words.length > 4) return false;
+  const nonNameWords = new Set([
+    'dan', 'yang', 'di', 'ke', 'untuk', 'dengan',
+    'and', 'the', 'of', 'in', 'on', 'to', 'for'
+  ]);
+  return words.every((word) => {
+    const lower = word.toLowerCase();
+    if (nonNameWords.has(lower)) return false;
+    return /^[a-zA-Z][a-zA-Z'.-]*$/.test(word);
+  });
+}
+
+function isLikelySingleWordSongTitle(value) {
+  const cleaned = sanitizeInput(value);
+  if (!cleaned || cleaned.includes(' ')) return false;
+  if (cleaned.length < 3 || cleaned.length > 40) return false;
+  return /^[a-zA-Z0-9'.-]+$/.test(cleaned);
+}
+
 function isLikelySwappedTitleArtist(title, artist) {
-  return looksLikeArtistName(title) && looksLikeSongTitle(artist);
+  const titleLooksArtist = looksLikeArtistName(title);
+  const artistLooksSong = looksLikeSongTitle(artist);
+  if (titleLooksArtist && artistLooksSong) return true;
+
+  // Kasus umum yang lolos sebelumnya: title berisi nama artis (2-4 kata), artist berisi judul 1 kata.
+  if (looksLikePersonFullName(title) && isLikelySingleWordSongTitle(artist)) return true;
+
+  return false;
 }
 
 function getQueueRequestErrorStatus(error = '') {
@@ -431,10 +462,8 @@ function logQueueCount() {
   console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
 }
 
-function validateSongRequest(query, options = {}) {
-  const { allowLikelySwapped = false } = options;
+function validateSongRequest(query) {
   const errors = [];
-  const warnings = [];
   const trimmed = normalizeInput(query);
   if (!trimmed) errors.push('Query tidak boleh kosong');
   if (trimmed.length > 200) errors.push('Query terlalu panjang (maksimal 200 karakter)');
@@ -449,12 +478,7 @@ function validateSongRequest(query, options = {}) {
   if (parsed.artist && parsed.artist.length > 100) errors.push('Nama artis maksimal 100 karakter');
   if (parsed.title && /^\d+$/.test(parsed.title)) errors.push('Judul lagu tidak boleh hanya angka');
   if (parsed.title && parsed.artist && isLikelySwappedTitleArtist(parsed.title, parsed.artist)) {
-    const swappedMessage = 'Judul dan nama artis terdeteksi tertukar. Format benar: Judul Lagu - Nama Artis';
-    if (allowLikelySwapped) {
-      warnings.push(swappedMessage);
-    } else {
-      errors.push(swappedMessage);
-    }
+    errors.push('Judul dan nama artis terdeteksi tertukar. Format benar: Judul Lagu - Nama Artis');
   }
   
   const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
@@ -464,7 +488,6 @@ function validateSongRequest(query, options = {}) {
   return {
     isValid: errors.length === 0,
     errors,
-    warnings,
     title: parsed.title,
     artist: parsed.artist
   };
@@ -511,12 +534,11 @@ function createRequestObject(query, ip, userAgent, isPriority = false, addedByAd
 }
 
 // Fungsi untuk menambahkan request ke antrian (dengan validasi dan pengecekan duplicate)
-async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false, options = {}) {
-  const { allowLikelySwapped = false } = options;
+async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false) {
   const normalizedQuery = normalizeInput(query);
 
   // Validasi
-  const validation = validateSongRequest(normalizedQuery, { allowLikelySwapped });
+  const validation = validateSongRequest(normalizedQuery);
   if (!validation.isValid) {
     return { success: false, error: validation.errors[0], details: validation.errors };
   }
@@ -578,7 +600,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   return {
     success: true,
     request: newRequest,
-    warnings: validation.warnings || [],
+    warnings: [],
     queuePosition: position === 'first' ? 1 : state.requestQueue.length,
     estimatedWait: position === 'first' ? 0 : calculateWaitTime(state.requestQueue.length),
     queueLimit: QUEUE_LIMIT,
@@ -1116,15 +1138,13 @@ app.post('/request-song', async (req, res) => {
       return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
     }
     
-    const allowLikelySwapped = isAdminSessionTokenValid(req.headers['x-admin-token']);
     const result = await addRequestToQueue(
       query, 
       req.ip, 
       req.headers['user-agent'], 
       'last', 
       false, 
-      false,
-      { allowLikelySwapped }
+      false
     );
     
     if (!result.success) {
@@ -1444,8 +1464,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
       req.headers['user-agent'], 
       'first', 
       true, 
-      true,
-      { allowLikelySwapped: true }
+      true
     );
     
     if (!result.success) {
