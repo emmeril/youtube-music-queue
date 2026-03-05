@@ -103,17 +103,23 @@ function isAdminSessionTokenValid(sessionToken) {
 }
 
 function sendAdminDenied(res) {
-  return res.status(403).json({
-    error: 'Akses ditolak. Hanya admin yang bisa melakukan aksi ini.',
-    requiresAdmin: true
-  });
+  return sendError(
+    res,
+    403,
+    'ADMIN_REQUIRED',
+    'Akses ditolak. Hanya admin yang bisa melakukan aksi ini.',
+    { requiresAdmin: true }
+  );
 }
 
 function sendAdminExpired(res) {
-  return res.status(403).json({
-    error: 'Session admin telah kadaluarsa. Silakan login kembali.',
-    sessionExpired: true
-  });
+  return sendError(
+    res,
+    403,
+    'ADMIN_SESSION_EXPIRED',
+    'Session admin telah kadaluarsa. Silakan login kembali.',
+    { sessionExpired: true }
+  );
 }
 
 function requireAdmin(req, res, next) {
@@ -133,10 +139,13 @@ function requireSuperAdmin(req, res, next) {
   }
 
   if (validation.session.role !== 'super') {
-    return res.status(403).json({ 
-      error: 'Akses ditolak. Hanya Super Admin yang bisa melakukan aksi ini.',
-      requiresSuperAdmin: true 
-    });
+    return sendError(
+      res,
+      403,
+      'SUPER_ADMIN_REQUIRED',
+      'Akses ditolak. Hanya Super Admin yang bisa melakukan aksi ini.',
+      { requiresSuperAdmin: true }
+    );
   }
   
   req.adminRole = validation.session.role;
@@ -230,20 +239,28 @@ function clearSongEndTimeout() {
   }
 }
 
+function resetRequestLockState() {
+  state.requestLockUntil = 0;
+  state.requestStartTime = 0;
+  state.originalLockDuration = 0;
+}
+
 function scheduleAutoUnlock(lockDuration) {
   clearSongEndTimeout();
   if (lockDuration > 0) {
     state.songEndTimeout = setTimeout(() => {
       const now = Date.now();
-      if (now < state.requestLockUntil) {
+      if (state.requestLockUntil > 0 && now >= state.requestLockUntil) {
         console.log(`⏰ Auto-unlock triggered for song completion`);
-        state.requestLockUntil = 0;
+        resetRequestLockState();
         state.currentSong.isPlaying = false;
         if (state.activeRequest) {
           state.activeRequest.status = 'auto_completed';
           state.activeRequest.autoCompletedAt = now;
           state.activeRequest = null;
           saveRequests(); // async, tidak perlu await
+        } else {
+          saveAppState(); // async, tidak perlu await
         }
       }
     }, lockDuration);
@@ -312,8 +329,18 @@ function isLikelySwappedTitleArtist(title, artist) {
 
 function getQueueRequestErrorStatus(error = '') {
   if (error.includes('penuh')) return 429;
-  if (error.includes('sudah ada')) return 409;
+  if (error.includes('baru saja diputar')) return 429;
+  if (error.includes('sudah ada') || error.includes('sedang diputar')) return 409;
   return 400;
+}
+
+function getQueueRequestErrorCode(error = '') {
+  if (error.includes('penuh')) return 'QUEUE_FULL';
+  if (error.includes('baru saja diputar')) return 'SONG_COOLDOWN_ACTIVE';
+  if (error.includes('sudah ada')) return 'DUPLICATE_QUEUE_REQUEST';
+  if (error.includes('sedang diputar')) return 'SONG_ALREADY_PLAYING';
+  if (error.includes('Maksimal') && error.includes('artis')) return 'ARTIST_QUEUE_LIMIT_REACHED';
+  return 'INVALID_REQUEST';
 }
 
 function parseNonNegativeInt(value, fallback = 0) {
@@ -326,6 +353,18 @@ function normalizeDurationMs(value, fallback = 180000) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(10000, Math.min(parsed, 3600000));
+}
+
+function normalizeSongField(value, fallback) {
+  const normalized = normalizeInput(value);
+  if (!normalized) return fallback;
+  return normalized.slice(0, 200);
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = normalizeInput(value);
+  if (!normalized) return null;
+  return normalized.slice(0, 1000);
 }
 
 function normalizeBoolean(value) {
@@ -347,9 +386,10 @@ function getLockState(now = Date.now()) {
 }
 
 function getQueueMeta() {
+  const remainingSlots = Math.max(0, QUEUE_LIMIT - state.requestQueue.length);
   return {
     queueLimit: QUEUE_LIMIT,
-    remainingSlots: QUEUE_LIMIT - state.requestQueue.length,
+    remainingSlots,
     queueFull: state.requestQueue.length >= QUEUE_LIMIT
   };
 }
@@ -365,7 +405,26 @@ function getCurrentLockProgress(now = Date.now()) {
 
 function sendInternalError(res, context, error) {
   console.error(`Error in ${context}:`, error);
-  return res.status(500).json({ error: 'Internal server error' });
+  return sendError(res, 500, 'INTERNAL_SERVER_ERROR', 'Internal server error');
+}
+
+function sendError(res, status, code, message, meta = null) {
+  const payload = {
+    success: false,
+    error: {
+      code,
+      message
+    }
+  };
+  if (meta && typeof meta === 'object') {
+    const cleanedMeta = Object.fromEntries(
+      Object.entries(meta).filter(([, value]) => value !== undefined && value !== null)
+    );
+    if (Object.keys(cleanedMeta).length > 0) {
+      payload.error.meta = cleanedMeta;
+    }
+  }
+  return res.status(status).json(payload);
 }
 
 function logQueueCount() {
@@ -860,21 +919,22 @@ async function addToHistory(song, request = null) {
   state.stats.totalPlayTime += Math.round((song.duration || 180000) / 60000);
   
   await saveHistory();
+  await saveAppState();
 }
 
 // ================= API ENDPOINTS =================
 app.post('/admin/login', (req, res) => {
   const rawPassword = req.body?.password ?? req.body?.adminPassword ?? '';
   const password = normalizeInput(rawPassword);
-  if (isBlank(password)) return res.status(400).json({ error: 'Password diperlukan' });
+  if (isBlank(password)) return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password diperlukan');
   if (isBlank(SUPER_ADMIN_PASSWORD) && isBlank(ADMIN_PASSWORD)) {
-    return res.status(500).json({ error: 'Konfigurasi password admin belum diatur di server' });
+    return sendError(res, 500, 'ADMIN_PASSWORD_NOT_CONFIGURED', 'Konfigurasi password admin belum diatur di server');
   }
   
   let role = null;
   if (password === SUPER_ADMIN_PASSWORD) role = 'super';
   else if (password === ADMIN_PASSWORD) role = 'admin';
-  else return res.status(401).json({ error: 'Password salah' });
+  else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
   
   const token = generateId();
   adminSession = {
@@ -920,20 +980,23 @@ app.post('/update', async (req, res) => {
     const now = Date.now();
     const validDuration = normalizeDurationMs(duration, 180000);
     const isNewSongFlag = normalizeBoolean(isNewSong);
-    const confidence = calculateConfidence({ title, artist, duration: validDuration });
+    const normalizedTitle = normalizeSongField(title, 'Tidak diketahui');
+    const normalizedArtist = normalizeSongField(artist, 'Tidak diketahui');
+    const normalizedUrl = normalizeOptionalUrl(url);
+    const confidence = calculateConfidence({ title: normalizedTitle, artist: normalizedArtist, duration: validDuration });
     const previousSong = { ...state.currentSong };
     
     state.currentSong = {
-      title: title || 'Tidak diketahui',
-      artist: artist || 'Tidak diketahui',
+      title: normalizedTitle,
+      artist: normalizedArtist,
       duration: validDuration,
       timestamp: now,
       confidence,
       isPlaying: true,
-      url: url || null
+      url: normalizedUrl
     };
     
-    console.log(`📊 Song updated: ${title} - ${artist} (${formatDuration(validDuration)}, ${confidence}%)`);
+    console.log(`📊 Song updated: ${normalizedTitle} - ${normalizedArtist} (${formatDuration(validDuration)}, ${confidence}%)`);
     
     if (state.activeRequest && state.requestLockUntil > 0) {
       if (isNewSongFlag || Math.abs(validDuration - (previousSong.duration || 0)) > 5000) {
@@ -990,8 +1053,7 @@ app.get('/get-request', async (req, res) => {
     const now = Date.now();
     if (now < state.requestLockUntil) {
       const remaining = Math.ceil((state.requestLockUntil - now) / 1000);
-      return res.status(423).json({
-        error: 'Request terkunci',
+      return sendError(res, 423, 'REQUEST_LOCKED', 'Request terkunci', {
         lockRemaining: remaining,
         remainingFormatted: formatWaitTime(remaining),
         currentPlaying: state.activeRequest?.query || state.currentSong.title,
@@ -1051,7 +1113,7 @@ app.post('/request-song', async (req, res) => {
   try {
     const { query } = req.body;
     if (isBlank(query)) {
-      return res.status(400).json({ error: 'Query tidak boleh kosong' });
+      return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
     }
     
     const allowLikelySwapped = isAdminSessionTokenValid(req.headers['x-admin-token']);
@@ -1067,7 +1129,13 @@ app.post('/request-song', async (req, res) => {
     
     if (!result.success) {
       const status = getQueueRequestErrorStatus(result.error);
-      return res.status(status).json(result);
+      return sendError(res, status, getQueueRequestErrorCode(result.error), result.error, {
+        details: result.details || null,
+        queueLimit: result.queueLimit,
+        cooldown: result.cooldown,
+        artist: result.artist,
+        limit: result.limit
+      });
     }
     
     console.log(`📝 Request added: "${query}" → "${result.request.query}"`);
@@ -1092,18 +1160,18 @@ app.post('/admin/move-request', requireAdmin, async (req, res) => {
   try {
     const { requestId } = req.body;
     if (!requestId || !isStrictPositiveInteger(req.body.newPosition)) {
-      return res.status(400).json({ error: 'requestId dan newPosition diperlukan' });
+      return sendError(res, 400, 'REQUEST_ID_AND_POSITION_REQUIRED', 'requestId dan newPosition diperlukan');
     }
     const newPosition = Number.parseInt(req.body.newPosition, 10);
     if (!Number.isInteger(newPosition)) {
-      return res.status(400).json({ error: 'newPosition harus berupa angka bulat' });
+      return sendError(res, 400, 'INVALID_NEW_POSITION', 'newPosition harus berupa angka bulat');
     }
     if (newPosition < 1 || newPosition > state.requestQueue.length) {
-      return res.status(400).json({ error: `Posisi harus antara 1 dan ${state.requestQueue.length}` });
+      return sendError(res, 400, 'POSITION_OUT_OF_RANGE', `Posisi harus antara 1 dan ${state.requestQueue.length}`);
     }
     
     const currentIndex = state.requestQueue.findIndex(req => req.id === requestId);
-    if (currentIndex === -1) return res.status(404).json({ error: 'Request tidak ditemukan' });
+    if (currentIndex === -1) return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Request tidak ditemukan');
     
     if (currentIndex + 1 === newPosition) {
       return res.json({ success: true, message: 'Posisi tidak berubah' });
@@ -1153,7 +1221,7 @@ app.post('/song-ended', async (req, res) => {
     
     clearSongEndTimeout();
     
-    state.requestLockUntil = 0;
+    resetRequestLockState();
     state.currentSong.isPlaying = false;
     
     if (state.activeRequest) {
@@ -1215,7 +1283,7 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
     
     clearSongEndTimeout();
     
-    state.requestLockUntil = 0;
+    resetRequestLockState();
     
     if (state.activeRequest) {
       state.activeRequest.status = 'skipped';
@@ -1241,7 +1309,7 @@ app.post('/force-next', requireSuperAdmin, async (req, res) => {
     
     clearSongEndTimeout();
     
-    state.requestLockUntil = 0;
+    resetRequestLockState();
     state.currentSong.isPlaying = false;
     
     if (state.activeRequest) {
@@ -1261,13 +1329,13 @@ app.delete('/remove-request/:id', requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const index = state.requestQueue.findIndex(req => req.id === id);
-    if (index === -1) return res.status(404).json({ error: 'Request tidak ditemukan' });
+    if (index === -1) return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Request tidak ditemukan');
     
     const removed = state.requestQueue.splice(index, 1)[0];
     
     if (state.activeRequest && state.activeRequest.id === id) {
       clearSongEndTimeout();
-      state.requestLockUntil = 0;
+      resetRequestLockState();
       state.activeRequest = null;
       console.log(`⚠️ Active request removed: "${removed.query}"`);
     }
@@ -1292,7 +1360,7 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
     const previousCount = state.requestQueue.length;
     state.requestQueue = [];
     state.activeRequest = null;
-    state.requestLockUntil = 0;
+    resetRequestLockState();
     
     clearSongEndTimeout();
     
@@ -1346,7 +1414,7 @@ app.get('/stats', (req, res) => {
   const now = Date.now();
   const { isLocked, lockRemaining } = getLockState(now);
   const { queueLimit, remainingSlots } = getQueueMeta();
-  const uptime = Math.round((now - (state.history[0]?.timestamp || now)) / 1000);
+  const uptime = Math.round(process.uptime());
   res.json({
     serverTime: now,
     uptimeSeconds: uptime,
@@ -1367,7 +1435,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
   try {
     const { query } = req.body;
     if (isBlank(query)) {
-      return res.status(400).json({ error: 'Query tidak boleh kosong' });
+      return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
     }
     
     const result = await addRequestToQueue(
@@ -1382,7 +1450,13 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
     
     if (!result.success) {
       const status = getQueueRequestErrorStatus(result.error);
-      return res.status(status).json(result);
+      return sendError(res, status, getQueueRequestErrorCode(result.error), result.error, {
+        details: result.details || null,
+        queueLimit: result.queueLimit,
+        cooldown: result.cooldown,
+        artist: result.artist,
+        limit: result.limit
+      });
     }
     
     console.log(`📝 Priority request added (first position): "${query}" → "${result.request.query}"`);
@@ -1438,7 +1512,7 @@ setInterval(async () => {
   
   if (now > state.requestLockUntil && state.requestLockUntil > 0) {
     console.log(`🔄 Auto-unlock: Lock expired`);
-    state.requestLockUntil = 0;
+    resetRequestLockState();
     if (state.activeRequest) {
       state.activeRequest.status = 'auto_completed';
       state.activeRequest.autoCompletedAt = now;

@@ -141,6 +141,61 @@
                         this.showToast('Session admin telah kadaluarsa', 'warning');
                     }
                 },
+
+                async readJsonSafe(response) {
+                    try {
+                        return await response.json();
+                    } catch (_) {
+                        return null;
+                    }
+                },
+
+                getApiErrorCode(result) {
+                    return result?.error?.code || null;
+                },
+
+                getApiErrorMessage(result, fallback = 'Terjadi kesalahan pada server') {
+                    if (result?.error?.message) return result.error.message;
+                    if (typeof result?.error === 'string' && result.error.trim()) return result.error;
+                    return fallback;
+                },
+
+                shouldClearSessionOnError(result) {
+                    const code = this.getApiErrorCode(result);
+                    return code === 'ADMIN_REQUIRED' || code === 'ADMIN_SESSION_EXPIRED';
+                },
+
+                getRequestFailureMessage(apiResult, fallback = 'Terjadi kesalahan pada server') {
+                    if (apiResult?.status === 0) {
+                        return 'Server tidak terjangkau. Periksa koneksi atau coba lagi.';
+                    }
+                    return this.getApiErrorMessage(apiResult?.data, fallback);
+                },
+
+                handleApiFailure(apiResult, fallback) {
+                    if (this.shouldClearSessionOnError(apiResult?.data)) {
+                        this.clearAdminSession(true);
+                    }
+                    this.showToast(this.getRequestFailureMessage(apiResult, fallback), 'error');
+                },
+
+                async apiRequest(url, options = {}) {
+                    try {
+                        const response = await fetch(url, options);
+                        const data = await this.readJsonSafe(response);
+                        return {
+                            ok: response.ok,
+                            status: response.status,
+                            data
+                        };
+                    } catch (_) {
+                        return {
+                            ok: false,
+                            status: 0,
+                            data: null
+                        };
+                    }
+                },
                 
                 // Load all data
                 async loadData() {
@@ -149,26 +204,27 @@
                     try {
                         const headers = this.getAdminHeaders();
                         
-                        const [statusRes, queueRes] = await Promise.all([
-                            fetch('/status', { headers }).catch(() => null),
-                            fetch('/queue-info', { headers }).catch(() => null)
+                        const [statusResult, queueResult] = await Promise.all([
+                            this.apiRequest('/status', { headers }),
+                            this.apiRequest('/queue-info', { headers })
                         ]);
                         
-                        this.isConnected = statusRes && statusRes.ok;
+                        this.isConnected = statusResult.ok;
                         
-                        if (statusRes && statusRes.ok) {
-                            const statusData = await statusRes.json();
+                        if (statusResult.ok) {
+                            const statusData = statusResult.data || {};
                             this.currentSong = statusData.song;
                             this.activeRequest = statusData.activeRequest;
-                            this.lockRemaining = Math.round(statusData.lockRemaining / 1000);
+                            const lockRemainingMs = Number(statusData.lockRemaining || 0);
+                            this.lockRemaining = Math.round(lockRemainingMs / 1000);
                             this.lockInfo = statusData.lockInfo || {};
                             this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
                             this.queueLimit = statusData.queueLimit || 100;
                         }
                         
-                        if (queueRes && queueRes.ok) {
-                            const queueData = await queueRes.json();
+                        if (queueResult.ok) {
+                            const queueData = queueResult.data || {};
                             this.queue = queueData.queue || [];
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
@@ -346,15 +402,13 @@
                             endpoint = '/admin/request-first';
                         }
                         
-                        const response = await fetch(endpoint, {
+                        const result = await this.apiRequest(endpoint, {
                             method: method,
                             headers: requestHeaders,
                             body: JSON.stringify(bodyData)
                         });
                         
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+                        if (result.ok) {
                             // Reset form
                             this.newRequest = {
                                 title: '',
@@ -365,17 +419,12 @@
                             await this.loadData();
                             
                             if (isPriorityRequest) {
-                                this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.queuePosition})`, 'success');
+                                this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.data?.queuePosition})`, 'success');
                             } else {
-                                this.showToast(`Ditambahkan ke antrian (Posisi: ${result.queuePosition})`, 'success');
+                                this.showToast(`Ditambahkan ke antrian (Posisi: ${result.data?.queuePosition})`, 'success');
                             }
                         } else {
-                            if (response.status === 403) {
-                                this.showToast('Akses ditolak. Hanya admin yang bisa menambahkan prioritas.', 'error');
-                                this.clearAdminSession();
-                            } else {
-                                this.showToast(`Error: ${result.error}`, 'error');
-                            }
+                            this.handleApiFailure(result, 'Gagal menambahkan request');
                         }
                     } catch (error) {
                         this.showToast('Gagal menambahkan request', 'error');
@@ -394,19 +443,16 @@
                     if (!confirm('Hapus request ini dari antrian?')) return;
                     
                     try {
-                        const response = await fetch(`/remove-request/${id}`, {
+                        const result = await this.apiRequest(`/remove-request/${id}`, {
                             method: 'DELETE',
                             headers: this.getAdminHeaders()
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+
+                        if (result.ok) {
                             await this.loadData();
-                            this.showToast(`Dihapus: ${result.removed}`, 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus request.', 'error');
-                            this.clearAdminSession();
+                            this.showToast(`Dihapus: ${result.data?.removed}`, 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal menghapus request');
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus request', 'error');
@@ -423,19 +469,16 @@
                     if (!confirm('Skip lagu saat ini?')) return;
                     
                     try {
-                        const response = await fetch('/skip-current', {
+                        const result = await this.apiRequest('/skip-current', {
                             method: 'POST',
                             headers: this.getAdminHeaders()
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+
+                        if (result.ok) {
                             await this.loadData();
                             this.showToast('Request berhasil diskip', 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa skip.', 'error');
-                            this.clearAdminSession();
+                        } else {
+                            this.handleApiFailure(result, 'Gagal skip request');
                         }
                     } catch (error) {
                         this.showToast('Gagal skip request', 'error');
@@ -452,17 +495,16 @@
                     if (!confirm('Force skip ke lagu berikutnya?')) return;
                     
                     try {
-                        const response = await fetch('/force-next', {
+                        const result = await this.apiRequest('/force-next', {
                             method: 'POST',
                             headers: this.getAdminHeaders()
                         });
                         
-                        if (response.ok) {
+                        if (result.ok) {
                             await this.loadData();
                             this.showToast('Force skip berhasil', 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa force next.', 'error');
-                            this.clearAdminSession();
+                        } else {
+                            this.handleApiFailure(result, 'Gagal force skip');
                         }
                     } catch (error) {
                         this.showToast('Gagal force skip', 'error');
@@ -484,19 +526,16 @@
                     if (!confirm(`Hapus semua ${this.queue.length} request dari antrian?`)) return;
                     
                     try {
-                        const response = await fetch('/clear-requests', {
+                        const result = await this.apiRequest('/clear-requests', {
                             method: 'DELETE',
                             headers: this.getAdminHeaders()
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+
+                        if (result.ok) {
                             await this.loadData();
-                            this.showToast(`Dihapus ${result.clearedCount} request`, 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Akses ditolak. Hanya Super Admin yang bisa menghapus antrian.', 'error');
-                            this.clearAdminSession();
+                            this.showToast(`Dihapus ${result.data?.clearedCount} request`, 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal menghapus antrian');
                         }
                     } catch (error) {
                         this.showToast('Gagal menghapus antrian', 'error');
@@ -514,7 +553,7 @@
                     if (newPosition < 1) return;
                     
                     try {
-                        const response = await fetch('/admin/move-request', {
+                        const result = await this.apiRequest('/admin/move-request', {
                             method: 'POST',
                             headers: this.getAdminHeaders(true),
                             body: JSON.stringify({ 
@@ -522,17 +561,12 @@
                                 newPosition 
                             })
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+
+                        if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.message, 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Session admin tidak valid. Silakan login ulang.', 'error');
-                            this.clearAdminSession();
+                            this.showToast(result.data?.message, 'success');
                         } else {
-                            this.showToast(result.error, 'error');
+                            this.handleApiFailure(result, 'Gagal memindahkan request');
                         }
                     } catch (error) {
                         this.showToast('Gagal memindahkan request', 'error');
@@ -550,7 +584,7 @@
                     if (newPosition > this.queue.length) return;
                     
                     try {
-                        const response = await fetch('/admin/move-request', {
+                        const result = await this.apiRequest('/admin/move-request', {
                             method: 'POST',
                             headers: this.getAdminHeaders(true),
                             body: JSON.stringify({ 
@@ -558,17 +592,12 @@
                                 newPosition 
                             })
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
+
+                        if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.message, 'success');
-                        } else if (response.status === 403) {
-                            this.showToast('Session admin tidak valid. Silakan login ulang.', 'error');
-                            this.clearAdminSession();
+                            this.showToast(result.data?.message, 'success');
                         } else {
-                            this.showToast(result.error, 'error');
+                            this.handleApiFailure(result, 'Gagal memindahkan request');
                         }
                     } catch (error) {
                         this.showToast('Gagal memindahkan request', 'error');
@@ -609,18 +638,16 @@
                     this.isLoading = true;
                     
                     try {
-                        const response = await fetch('/admin/login', {
+                        const result = await this.apiRequest('/admin/login', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ password: this.adminPassword })
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (response.ok) {
-                            this.adminToken = result.token;
-                            this.adminRole = result.role; // Simpan role
-                            this.adminSessionExpires = result.expiresAt;
+
+                        if (result.ok) {
+                            this.adminToken = result.data?.token;
+                            this.adminRole = result.data?.role; // Simpan role
+                            this.adminSessionExpires = result.data?.expiresAt;
                             this.isAdmin = true;
                             this.adminPassword = '';
                             this.showAdminLogin = false;
@@ -635,7 +662,7 @@
                             // Load data dengan admin token
                             await this.loadData();
                         } else {
-                            this.showToast(result.error || 'Login gagal', 'error');
+                            this.handleApiFailure(result, 'Login gagal');
                         }
                     } catch (error) {
                         this.showToast('Gagal menghubungi server', 'error');
@@ -649,7 +676,7 @@
                     
                     try {
                         if (this.adminToken) {
-                            await fetch('/admin/logout', {
+                            await this.apiRequest('/admin/logout', {
                                 method: 'POST',
                                 headers: this.getAdminHeaders()
                             });
@@ -670,18 +697,23 @@
                     if (!this.adminToken) return;
                     
                     try {
-                        const response = await fetch('/admin/status', {
+                        const result = await this.apiRequest('/admin/status', {
                             headers: this.getAdminHeaders()
                         });
-                        
-                        const result = await response.json();
-                        
-                        if (!result.isAdmin) {
+
+                        if (!result.ok) {
+                            if (this.shouldClearSessionOnError(result.data)) {
+                                this.clearAdminSession(true);
+                            }
+                            return;
+                        }
+
+                        if (!result.data?.isAdmin) {
                             this.clearAdminSession(true);
                         } else {
                             this.isAdmin = true;
-                            this.adminRole = result.role; // Update role
-                            this.adminSessionExpires = result.expiresAt;
+                            this.adminRole = result.data.role; // Update role
+                            this.adminSessionExpires = result.data.expiresAt;
                             localStorage.setItem('adminToken', this.adminToken);
                             localStorage.setItem('adminExpires', this.adminSessionExpires);
                             localStorage.setItem('adminRole', this.adminRole);
@@ -694,9 +726,9 @@
                 // Check app version
                 async checkVersion() {
                     try {
-                        const response = await fetch('/version');
-                        if (response.ok) {
-                            const data = await response.json();
+                        const result = await this.apiRequest('/version');
+                        if (result.ok) {
+                            const data = result.data || {};
                             const savedVersion = localStorage.getItem('appVersion');
                             
                             if (savedVersion && savedVersion !== data.version) {
@@ -794,14 +826,15 @@
             }
         }
         
-        document.addEventListener('DOMContentLoaded', function() {
-            fetch('/health')
-                .then(response => {
-                    if (response.ok) {
-                        console.log('Server is healthy');
-                    }
-                })
-                .catch(() => {
-                    console.warn('Server is not reachable');
-                });
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const response = await fetch('/health');
+                if (response.ok) {
+                    console.log('Server is healthy');
+                } else {
+                    console.warn('Server health check failed');
+                }
+            } catch (_) {
+                console.warn('Server is not reachable');
+            }
         });

@@ -655,7 +655,15 @@ class RequestProcessor {
 
       if (response.status === 423) {
         const data = await response.json();
-        this.log(`Request locked: ${data.remainingFormatted} remaining`);
+        const remainingFormatted =
+          data?.error?.meta?.remainingFormatted ||
+          data?.remainingFormatted ||
+          'unknown';
+        const lockMessage =
+          data?.error?.message ||
+          data?.error ||
+          'Request terkunci';
+        this.log(`${lockMessage}: ${remainingFormatted} remaining`);
         return;
       }
 
