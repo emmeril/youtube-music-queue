@@ -606,6 +606,11 @@
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
                         return;
                     }
+
+                    if (this.randomQueueEnabled) {
+                        this.showToast('Pindah posisi hanya tersedia saat mode acak dimatikan', 'warning');
+                        return;
+                    }
                     
                     const newPosition = currentIndex; // Pindah ke posisi sebelumnya
                     if (newPosition < 1) return;
@@ -637,6 +642,11 @@
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
                         return;
                     }
+
+                    if (this.randomQueueEnabled) {
+                        this.showToast('Pindah posisi hanya tersedia saat mode acak dimatikan', 'warning');
+                        return;
+                    }
                     
                     const newPosition = currentIndex + 2; // Pindah ke posisi berikutnya
                     if (newPosition > this.queue.length) return;
@@ -659,6 +669,29 @@
                         }
                     } catch (error) {
                         this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+
+                async promoteRequestToPriority(requestId) {
+                    if (!this.isAdmin) {
+                        this.showToast('Hanya admin yang bisa mengubah request menjadi priority', 'error');
+                        return;
+                    }
+
+                    try {
+                        const result = await this.apiRequest(`/admin/request-priority/${requestId}`, {
+                            method: 'POST',
+                            headers: this.getAdminHeaders()
+                        });
+
+                        if (result.ok) {
+                            await this.loadData();
+                            this.showToast(result.data?.message || 'Request dijadikan priority', 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal mengubah request menjadi priority');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal mengubah request menjadi priority', 'error');
                     }
                 },
 

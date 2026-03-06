@@ -1419,6 +1419,15 @@ app.post('/request-song', async (req, res) => {
 
 app.post('/admin/move-request', requireAdmin, async (req, res) => {
   try {
+    if (state.randomQueueEnabled) {
+      return sendError(
+        res,
+        409,
+        'MOVE_DISABLED_IN_RANDOM_MODE',
+        'Pindah posisi hanya tersedia saat mode acak dimatikan'
+      );
+    }
+
     const { requestId } = req.body;
     if (!requestId || !isStrictPositiveInteger(req.body.newPosition)) {
       return sendError(res, 400, 'REQUEST_ID_AND_POSITION_REQUIRED', 'requestId dan newPosition diperlukan');
@@ -1450,6 +1459,47 @@ app.post('/admin/move-request', requireAdmin, async (req, res) => {
       oldPosition: currentIndex + 1,
       newPosition,
       queue: getQueueWithPosition().map(({ id, query, position }) => ({ id, query, position }))
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
+});
+
+app.post('/admin/request-priority/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentIndex = state.requestQueue.findIndex(req => req.id === id);
+    if (currentIndex === -1) {
+      return sendError(res, 404, 'REQUEST_NOT_FOUND', 'Request tidak ditemukan');
+    }
+
+    const requestToPromote = state.requestQueue[currentIndex];
+    if (requestToPromote.isPriority) {
+      return res.json({
+        success: true,
+        message: 'Request sudah berstatus priority',
+        request: requestToPromote
+      });
+    }
+
+    requestToPromote.isPriority = true;
+    requestToPromote.addedByAdmin = true;
+
+    const firstRegularIndex = state.requestQueue.findIndex((request) => !request.isPriority && request.id !== id);
+    const targetIndex = firstRegularIndex === -1 ? state.requestQueue.length - 1 : firstRegularIndex;
+
+    state.requestQueue.splice(currentIndex, 1);
+    const normalizedTargetIndex = currentIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    state.requestQueue.splice(normalizedTargetIndex, 0, requestToPromote);
+
+    await saveRequests();
+
+    console.log(`👑 Admin promoted request "${requestToPromote.query}" to priority`);
+    res.json({
+      success: true,
+      message: 'Request berhasil dijadikan priority',
+      request: requestToPromote,
+      queuePosition: state.requestQueue.findIndex(req => req.id === id) + 1
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
