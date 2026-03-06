@@ -7,13 +7,11 @@ const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
 const PORT = 4786;
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.3.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
 const MAX_REQUESTS_PER_ARTIST = 3;
-const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
@@ -69,6 +67,12 @@ const AppState = sequelize.define('AppState', {
   stats: { type: DataTypes.JSON },
   requestStartTime: { type: DataTypes.INTEGER },
   originalLockDuration: { type: DataTypes.INTEGER }
+});
+
+const AdminCredential = sequelize.define('AdminCredential', {
+  role: { type: DataTypes.STRING, primaryKey: true },
+  password: { type: DataTypes.STRING, allowNull: false },
+  updatedAtMs: { type: DataTypes.INTEGER, allowNull: false }
 });
 
 // Middleware
@@ -399,6 +403,24 @@ function normalizeOptionalUrl(value) {
   return normalized.slice(0, 1000);
 }
 
+async function getAdminCredential(role = 'admin') {
+  return AdminCredential.findByPk(role);
+}
+
+async function hasAdminCredential(role = 'admin') {
+  const credential = await getAdminCredential(role);
+  return Boolean(credential && !isBlank(credential.password));
+}
+
+async function upsertAdminCredential(role, password) {
+  const normalizedPassword = normalizeInput(password);
+  return AdminCredential.upsert({
+    role,
+    password: normalizedPassword,
+    updatedAtMs: Date.now()
+  });
+}
+
 function normalizeBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
@@ -454,20 +476,41 @@ function buildPersistedStats() {
   };
 }
 
-function pickNextQueueRequest() {
-  if (state.requestQueue.length === 0) return null;
+function shuffleArray(items) {
+  const clonedItems = [...items];
+  for (let index = clonedItems.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [clonedItems[index], clonedItems[randomIndex]] = [clonedItems[randomIndex], clonedItems[index]];
+  }
+  return clonedItems;
+}
 
-  const priorityIndex = state.requestQueue.findIndex((request) => request.isPriority);
-  if (priorityIndex !== -1) {
-    return state.requestQueue.splice(priorityIndex, 1)[0];
+function shuffleQueueForRandomMode() {
+  const priorityRequests = state.requestQueue.filter((request) => request.isPriority);
+  const regularRequests = state.requestQueue.filter((request) => !request.isPriority);
+  state.requestQueue = [...priorityRequests, ...shuffleArray(regularRequests)];
+}
+
+function insertRequestIntoQueue(newRequest, position) {
+  if (position === 'first') {
+    state.requestQueue.unshift(newRequest);
+    return 1;
   }
 
   if (!state.randomQueueEnabled) {
-    return state.requestQueue.shift();
+    state.requestQueue.push(newRequest);
+    return state.requestQueue.length;
   }
 
-  const randomIndex = Math.floor(Math.random() * state.requestQueue.length);
-  return state.requestQueue.splice(randomIndex, 1)[0];
+  const priorityCount = state.requestQueue.filter((request) => request.isPriority).length;
+  const insertIndex = priorityCount + Math.floor(Math.random() * (state.requestQueue.length - priorityCount + 1));
+  state.requestQueue.splice(insertIndex, 0, newRequest);
+  return insertIndex + 1;
+}
+
+function pickNextQueueRequest() {
+  if (state.requestQueue.length === 0) return null;
+  return state.requestQueue.shift();
 }
 
 function getCurrentLockProgress(now = Date.now()) {
@@ -630,11 +673,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   
   const newRequest = createRequestObject(normalizedQuery, ip, userAgent, isPriority, addedByAdmin);
   
-  if (position === 'first') {
-    state.requestQueue.unshift(newRequest);
-  } else {
-    state.requestQueue.push(newRequest);
-  }
+  const queuePosition = insertRequestIntoQueue(newRequest, position);
   
   await saveRequests();
   
@@ -642,8 +681,8 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     success: true,
     request: newRequest,
     warnings: [],
-    queuePosition: position === 'first' ? 1 : state.requestQueue.length,
-    estimatedWait: position === 'first' ? 0 : calculateWaitTime(state.requestQueue.length),
+    queuePosition,
+    estimatedWait: queuePosition === 1 ? 0 : calculateWaitTime(queuePosition),
     queueLimit: QUEUE_LIMIT,
     remainingSlots: QUEUE_LIMIT - state.requestQueue.length
   };
@@ -987,29 +1026,43 @@ async function addToHistory(song, request = null) {
 }
 
 // ================= API ENDPOINTS =================
-app.post('/admin/login', (req, res) => {
+app.post('/admin/login', async (req, res) => {
   const rawPassword = req.body?.password ?? req.body?.adminPassword ?? '';
   const password = normalizeInput(rawPassword);
   if (isBlank(password)) return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password diperlukan');
-  if (isBlank(SUPER_ADMIN_PASSWORD) && isBlank(ADMIN_PASSWORD)) {
-    return sendError(res, 500, 'ADMIN_PASSWORD_NOT_CONFIGURED', 'Konfigurasi password admin belum diatur di server');
+  try {
+    const superCredential = await getAdminCredential('super');
+    const adminCredential = await getAdminCredential('admin');
+    const hasSuperAdminCredential = superCredential && !isBlank(superCredential.password);
+    const hasAdminCredential = adminCredential && !isBlank(adminCredential.password);
+
+    if (!hasSuperAdminCredential && !hasAdminCredential) {
+      return sendError(
+        res,
+        500,
+        'ADMIN_PASSWORD_NOT_CONFIGURED',
+        'Konfigurasi admin belum diatur di database. Buat Super Admin terlebih dahulu.'
+      );
+    }
+
+    let role = null;
+    if (hasSuperAdminCredential && password === superCredential.password) role = 'super';
+    else if (hasAdminCredential && password === adminCredential.password) role = 'admin';
+    else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
+
+    const token = generateId();
+    adminSession = {
+      token,
+      role,
+      expires: Date.now() + SESSION_DURATION,
+      createdAt: Date.now()
+    };
+
+    console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
+    res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: adminSession.expires });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
   }
-  
-  let role = null;
-  if (password === SUPER_ADMIN_PASSWORD) role = 'super';
-  else if (password === ADMIN_PASSWORD) role = 'admin';
-  else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
-  
-  const token = generateId();
-  adminSession = {
-    token,
-    role,
-    expires: Date.now() + SESSION_DURATION,
-    createdAt: Date.now()
-  };
-  
-  console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
-  res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: adminSession.expires });
 });
 
 app.post('/admin/logout', requireAdmin, (req, res) => {
@@ -1036,6 +1089,65 @@ app.get('/admin/status', (req, res) => {
     expiresAt,
     remainingTime: isAdmin ? Math.max(0, expiresAt - Date.now()) : 0
   });
+});
+
+app.post('/admin/bootstrap-super-admin', async (req, res) => {
+  try {
+    if (await hasAdminCredential('super')) {
+      return sendError(res, 409, 'SUPER_ADMIN_ALREADY_CONFIGURED', 'Super Admin sudah dikonfigurasi');
+    }
+
+    const password = normalizeInput(req.body?.password ?? '');
+    if (isBlank(password)) {
+      return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password Super Admin diperlukan');
+    }
+    if (password.length < 4) {
+      return sendError(res, 400, 'PASSWORD_TOO_SHORT', 'Password Super Admin minimal 4 karakter');
+    }
+    if (password.length > 100) {
+      return sendError(res, 400, 'PASSWORD_TOO_LONG', 'Password Super Admin maksimal 100 karakter');
+    }
+
+    await upsertAdminCredential('super', password);
+    console.log('🔐 Initial Super Admin password stored in database');
+
+    res.json({
+      success: true,
+      message: 'Super Admin pertama berhasil dibuat di database'
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
+});
+
+app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
+  try {
+    const role = normalizeInput(req.body?.role || 'admin').toLowerCase();
+    if (!['admin', 'super'].includes(role)) {
+      return sendError(res, 400, 'INVALID_ROLE', 'Role harus admin atau super');
+    }
+
+    const password = normalizeInput(req.body?.password ?? '');
+    if (isBlank(password)) {
+      return sendError(res, 400, 'PASSWORD_REQUIRED', `Password ${role} diperlukan`);
+    }
+    if (password.length < 4) {
+      return sendError(res, 400, 'PASSWORD_TOO_SHORT', `Password ${role} minimal 4 karakter`);
+    }
+    if (password.length > 100) {
+      return sendError(res, 400, 'PASSWORD_TOO_LONG', `Password ${role} maksimal 100 karakter`);
+    }
+
+    await upsertAdminCredential(role, password);
+    console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} password updated in database`);
+
+    res.json({
+      success: true,
+      message: `Password ${role} berhasil disimpan ke database`
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
 });
 
 app.post('/update', async (req, res) => {
@@ -1285,8 +1397,17 @@ app.get('/requests', (req, res) => {
 
 app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
   try {
-    state.randomQueueEnabled = normalizeBoolean(req.body?.enabled);
-    await saveAppState();
+    const nextEnabled = normalizeBoolean(req.body?.enabled);
+    const changed = state.randomQueueEnabled !== nextEnabled;
+    state.randomQueueEnabled = nextEnabled;
+
+    if (state.randomQueueEnabled && changed) {
+      shuffleQueueForRandomMode();
+      console.log('🔀 Queue shuffled because random mode was enabled');
+      await saveRequests();
+    } else {
+      await saveAppState();
+    }
 
     res.json({
       success: true,

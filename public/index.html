@@ -516,28 +516,6 @@
 	                                <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : ''" class="text-red-400"></span>
 	                            </div>
 	                        </div>
-	                        <div class="bg-gray-800/50 p-3 rounded-lg">
-	                            <div class="flex items-center justify-between gap-3">
-	                                <div>
-	                                    <div class="text-xs md:text-sm text-gray-400">Mode antrian</div>
-	                                    <div class="font-medium text-sm md:text-base" :class="randomQueueEnabled ? 'text-yellow-400' : 'text-green-400'">
-	                                        <span x-text="randomQueueEnabled ? 'Acak Aktif' : 'Urut Normal'"></span>
-	                                    </div>
-	                                </div>
-	                                <button x-show="isAdmin && adminRole === 'super'"
-	                                        @click="toggleRandomQueue()"
-	                                        type="button"
-	                                        class="px-3 py-2 rounded-lg text-xs md:text-sm font-medium transition-colors"
-	                                        :class="randomQueueEnabled ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-100'">
-	                                    <i class="fas fa-random mr-1"></i>
-	                                    <span x-text="randomQueueEnabled ? 'Matikan' : 'Aktifkan'"></span>
-	                                </button>
-	                            </div>
-	                            <div class="mt-2 text-xs text-gray-500">
-	                                Saat aktif, lagu berikutnya dipilih acak dari antrian. Priority tetap didahulukan.
-	                            </div>
-	                        </div>
-	                        
 	                        <!-- Tombol Submit -->
                         <div class="flex gap-2">
                             <button @click="addRequest()"
@@ -577,10 +555,18 @@
 	                    </div>
 	                </div>
                 
-                <div class="flex gap-2 mt-2 md:mt-0">
-                    <!-- Tombol Clear All (Hanya Super Admin) -->
-                    <button @click="clearQueue()" 
-                            x-show="isAdmin && adminRole === 'super' && queue.length > 0"
+	                <div class="flex gap-2 mt-2 md:mt-0">
+	                    <button @click="toggleRandomQueue()"
+	                            x-show="isAdmin && adminRole === 'super'"
+	                            type="button"
+	                            class="px-3 py-1.5 md:px-4 md:py-2 rounded-lg transition-colors text-sm"
+	                            :class="randomQueueEnabled ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-100'">
+	                        <i class="fas fa-random mr-1 md:mr-2"></i>
+	                        <span x-text="randomQueueEnabled ? 'Matikan Acak' : 'Aktifkan Acak'"></span>
+	                    </button>
+	                    <!-- Tombol Clear All (Hanya Super Admin) -->
+	                    <button @click="clearQueue()" 
+	                            x-show="isAdmin && adminRole === 'super' && queue.length > 0"
                             class="px-3 py-1.5 md:px-4 md:py-2 bg-red-800 hover:bg-red-700 rounded-lg transition-colors text-sm">
                         <i class="fas fa-trash mr-1 md:mr-2"></i>Hapus Semua
                     </button>
@@ -604,7 +590,7 @@
 	                    <i class="fas fa-random text-yellow-400 text-base md:text-lg"></i>
 	                    <div>
 	                        <p class="font-medium text-yellow-300 text-sm md:text-base">Mode antrian acak sedang aktif</p>
-	                        <p class="text-xs md:text-sm text-yellow-400/80 mt-1">Posisi hanya sebagai daftar. Lagu berikutnya dipilih secara acak, kecuali request priority.</p>
+	                        <p class="text-xs md:text-sm text-yellow-400/80 mt-1">Urutan antrian sudah diacak. Request priority tetap berada di bagian atas.</p>
 	                    </div>
 	                </div>
 	            </div>
