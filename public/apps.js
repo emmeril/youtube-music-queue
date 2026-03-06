@@ -265,6 +265,19 @@
                     return words.length >= 3;
                 },
 
+                hasStrongSongTitleSignals(value) {
+                    const cleaned = this.sanitizeInput(value);
+                    if (!cleaned) return false;
+
+                    if (/[0-9()[\]{}]/.test(cleaned)) return true;
+                    if (/-/.test(cleaned)) return true;
+                    if (/\b(feat\.?|ft\.?|official|lyrics?|lirik|remix|cover|live|version|ost|soundtrack|video)\b/i.test(cleaned)) return true;
+                    if (/\b(a|an|the|and|or|but|of|in|on|at|to|for|with|without|from|aku|kamu|dia|kami|kita|mereka|yang|dan|dengan|untuk|pada|dalam|my|your|you|me|we|they|our|their|love)\b/i.test(cleaned)) return true;
+
+                    const words = cleaned.split(' ').filter(Boolean);
+                    return words.length >= 4;
+                },
+
                 looksLikePersonFullName(value) {
                     const cleaned = this.sanitizeInput(value);
                     if (!cleaned) return false;
@@ -290,11 +303,20 @@
                 },
 
                 isLikelySwappedTitleArtist(title, artist) {
-                    const titleLooksArtist = this.looksLikeArtistName(title);
-                    const artistLooksSong = this.looksLikeSongTitle(artist);
-                    if (titleLooksArtist && artistLooksSong) return true;
-                    if (this.looksLikePersonFullName(title) && this.isLikelySingleWordSongTitle(artist)) return true;
-                    return false;
+                    const cleanedTitle = this.sanitizeInput(title);
+                    const cleanedArtist = this.sanitizeInput(artist);
+                    if (!cleanedTitle || !cleanedArtist) return false;
+
+                    const titleWords = cleanedTitle.split(' ').filter(Boolean);
+                    const titleLooksArtist = this.looksLikeArtistName(cleanedTitle);
+                    const titleLooksPersonName = this.looksLikePersonFullName(cleanedTitle);
+                    const artistLooksSong = this.looksLikeSongTitle(cleanedArtist);
+                    const artistHasStrongSongSignals = this.hasStrongSongTitleSignals(cleanedArtist);
+
+                    if (!artistLooksSong || !artistHasStrongSongSignals) return false;
+                    if (titleLooksPersonName) return true;
+
+                    return titleLooksArtist && titleWords.length <= 2;
                 },
                 
                 // Validasi input di frontend
@@ -885,9 +907,7 @@
         document.addEventListener('DOMContentLoaded', async function() {
             try {
                 const response = await fetch('/health');
-                if (response.ok) {
-                    console.log('Server is healthy');
-                } else {
+                if (!response.ok) {
                     console.warn('Server health check failed');
                 }
             } catch (_) {

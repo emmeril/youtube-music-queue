@@ -330,6 +330,19 @@ function looksLikeSongTitle(value) {
   return words.length >= 3;
 }
 
+function hasStrongSongTitleSignals(value) {
+  const cleaned = sanitizeInput(value);
+  if (!cleaned) return false;
+
+  if (/[0-9()[\]{}]/.test(cleaned)) return true;
+  if (/-/.test(cleaned)) return true;
+  if (/\b(feat\.?|ft\.?|official|lyrics?|lirik|remix|cover|live|version|ost|soundtrack|video)\b/i.test(cleaned)) return true;
+  if (/\b(a|an|the|and|or|but|of|in|on|at|to|for|with|without|from|aku|kamu|dia|kami|kita|mereka|yang|dan|dengan|untuk|pada|dalam|my|your|you|me|we|they|our|their|love)\b/i.test(cleaned)) return true;
+
+  const words = cleaned.split(' ').filter(Boolean);
+  return words.length >= 4;
+}
+
 function looksLikePersonFullName(value) {
   const cleaned = sanitizeInput(value);
   if (!cleaned) return false;
@@ -355,30 +368,51 @@ function isLikelySingleWordSongTitle(value) {
 }
 
 function isLikelySwappedTitleArtist(title, artist) {
-  const titleLooksArtist = looksLikeArtistName(title);
-  const artistLooksSong = looksLikeSongTitle(artist);
-  if (titleLooksArtist && artistLooksSong) return true;
+  const cleanedTitle = sanitizeInput(title);
+  const cleanedArtist = sanitizeInput(artist);
+  if (!cleanedTitle || !cleanedArtist) return false;
 
-  // Kasus umum yang lolos sebelumnya: title berisi nama artis (2-4 kata), artist berisi judul 1 kata.
-  if (looksLikePersonFullName(title) && isLikelySingleWordSongTitle(artist)) return true;
+  const titleWords = cleanedTitle.split(' ').filter(Boolean);
+  const titleLooksArtist = looksLikeArtistName(cleanedTitle);
+  const titleLooksPersonName = looksLikePersonFullName(cleanedTitle);
+  const artistLooksSong = looksLikeSongTitle(cleanedArtist);
+  const artistHasStrongSongSignals = hasStrongSongTitleSignals(cleanedArtist);
 
-  return false;
+  if (!artistLooksSong || !artistHasStrongSongSignals) return false;
+
+  if (titleLooksPersonName) return true;
+
+  return titleLooksArtist && titleWords.length <= 2;
 }
 
-function getQueueRequestErrorStatus(error = '') {
-  if (error.includes('penuh')) return 429;
-  if (error.includes('baru saja diputar')) return 429;
-  if (error.includes('sudah ada') || error.includes('sedang diputar')) return 409;
-  return 400;
+function classifyQueueRequestError(error = '') {
+  if (error.includes('penuh')) {
+    return { status: 429, code: 'QUEUE_FULL' };
+  }
+  if (error.includes('baru saja diputar')) {
+    return { status: 429, code: 'SONG_COOLDOWN_ACTIVE' };
+  }
+  if (error.includes('Maksimal') && error.includes('artis')) {
+    return { status: 429, code: 'ARTIST_QUEUE_LIMIT_REACHED' };
+  }
+  if (error.includes('sudah ada')) {
+    return { status: 409, code: 'DUPLICATE_QUEUE_REQUEST' };
+  }
+  if (error.includes('sedang diputar')) {
+    return { status: 409, code: 'SONG_ALREADY_PLAYING' };
+  }
+  return { status: 400, code: 'INVALID_REQUEST' };
 }
 
-function getQueueRequestErrorCode(error = '') {
-  if (error.includes('penuh')) return 'QUEUE_FULL';
-  if (error.includes('baru saja diputar')) return 'SONG_COOLDOWN_ACTIVE';
-  if (error.includes('sudah ada')) return 'DUPLICATE_QUEUE_REQUEST';
-  if (error.includes('sedang diputar')) return 'SONG_ALREADY_PLAYING';
-  if (error.includes('Maksimal') && error.includes('artis')) return 'ARTIST_QUEUE_LIMIT_REACHED';
-  return 'INVALID_REQUEST';
+function sendQueueRequestFailure(res, result) {
+  const { status, code } = classifyQueueRequestError(result.error);
+  return sendError(res, status, code, result.error, {
+    details: result.details || null,
+    queueLimit: result.queueLimit,
+    cooldown: result.cooldown,
+    artist: result.artist,
+    limit: result.limit
+  });
 }
 
 function parseNonNegativeInt(value, fallback = 0) {
@@ -1320,14 +1354,7 @@ app.post('/request-song', async (req, res) => {
     );
     
     if (!result.success) {
-      const status = getQueueRequestErrorStatus(result.error);
-      return sendError(res, status, getQueueRequestErrorCode(result.error), result.error, {
-        details: result.details || null,
-        queueLimit: result.queueLimit,
-        cooldown: result.cooldown,
-        artist: result.artist,
-        limit: result.limit
-      });
+      return sendQueueRequestFailure(res, result);
     }
     
     console.log(`📝 Request added: "${query}" → "${result.request.query}"`);
@@ -1466,15 +1493,18 @@ app.post('/verify-match', (req, res) => {
     return res.json({ isMatch: false, reason: 'No active request' });
   }
   
+  const parsedRequest = parseSongQuery(state.activeRequest.query);
+  const requestTitle = (parsedRequest.title || state.activeRequest.query).toLowerCase();
+  const requestArtist = (parsedRequest.artist || '').toLowerCase();
   const requestQuery = state.activeRequest.query.toLowerCase();
-  const songTitle = (title || '').toLowerCase();
-  const songArtist = (artist || '').toLowerCase();
+  const songTitle = normalizeInput(title).toLowerCase();
+  const songArtist = normalizeInput(artist).toLowerCase();
   const titleMatch = songTitle.length > 0 && (
-    songTitle.includes(requestQuery) ||
-    requestQuery.includes(songTitle)
+    songTitle.includes(requestTitle) ||
+    requestTitle.includes(songTitle)
   );
   const artistMatch = songArtist.length > 0 && (
-    songArtist.includes(requestQuery) ||
+    (requestArtist.length > 0 && songArtist.includes(requestArtist)) ||
     requestQuery.includes(songArtist)
   );
   const isMatch = titleMatch || artistMatch;
@@ -1667,14 +1697,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
     );
     
     if (!result.success) {
-      const status = getQueueRequestErrorStatus(result.error);
-      return sendError(res, status, getQueueRequestErrorCode(result.error), result.error, {
-        details: result.details || null,
-        queueLimit: result.queueLimit,
-        cooldown: result.cooldown,
-        artist: result.artist,
-        limit: result.limit
-      });
+      return sendQueueRequestFailure(res, result);
     }
     
     console.log(`📝 Priority request added (first position): "${query}" → "${result.request.query}"`);
