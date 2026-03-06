@@ -532,9 +532,9 @@ function getRandomQueueMeta() {
     mode: state.randomQueueEnabled ? 'fair-random' : 'fifo',
     poolSize: FAIR_RANDOM_POOL_SIZE,
     description: state.randomQueueEnabled
-      ? `Lagu berikutnya dipilih acak berbobot dari ${FAIR_RANDOM_POOL_SIZE} antrean teratas. Request lama lebih diprioritaskan, request baru tidak memotong antrean lama, dan priority tetap didahulukan.`
+      ? `Lagu berikutnya dipilih acak dari ${FAIR_RANDOM_POOL_SIZE} antrian teratas. Request yang paling lama menunggu punya peluang terbesar, request baru tidak memotong antrean lama, dan priority tetap didahulukan.`
       : 'Antrian diputar sesuai urutan masuk.',
-    shortLabel: state.randomQueueEnabled ? `Fair random top ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
+    shortLabel: state.randomQueueEnabled ? `Fair random oldest ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
   };
 }
 
@@ -587,9 +587,19 @@ function pickNextQueueRequest() {
     return state.requestQueue.shift();
   }
 
-  const poolSize = Math.min(FAIR_RANDOM_POOL_SIZE, state.requestQueue.length);
-  const selectedIndex = pickWeightedRandomIndex(poolSize);
-  return state.requestQueue.splice(selectedIndex, 1)[0];
+  const weightedCandidates = state.requestQueue
+    .map((request, index) => ({ request, index }))
+    .sort((left, right) => {
+      if (left.request.time !== right.request.time) {
+        return left.request.time - right.request.time;
+      }
+      return left.index - right.index;
+    })
+    .slice(0, FAIR_RANDOM_POOL_SIZE);
+
+  const selectedCandidateIndex = pickWeightedRandomIndex(weightedCandidates.length);
+  const selectedQueueIndex = weightedCandidates[selectedCandidateIndex].index;
+  return state.requestQueue.splice(selectedQueueIndex, 1)[0];
 }
 
 function getCurrentLockProgress(now = Date.now()) {
