@@ -1350,10 +1350,6 @@ app.post('/request-song', async (req, res) => {
 
 app.post('/admin/move-request', requireAdmin, async (req, res) => {
   try {
-    if (state.randomQueueEnabled) {
-      return sendError(res, 409, 'RANDOM_QUEUE_ENABLED', 'Urutan manual dinonaktifkan saat mode antrian acak aktif');
-    }
-
     const { requestId } = req.body;
     if (!requestId || !isStrictPositiveInteger(req.body.newPosition)) {
       return sendError(res, 400, 'REQUEST_ID_AND_POSITION_REQUIRED', 'requestId dan newPosition diperlukan');

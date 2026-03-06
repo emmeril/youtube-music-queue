@@ -575,11 +575,6 @@
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
                         return;
                     }
-
-                    if (this.randomQueueEnabled) {
-                        this.showToast('Mode antrian acak aktif. Urutan manual dinonaktifkan.', 'warning');
-                        return;
-                    }
                     
                     const newPosition = currentIndex; // Pindah ke posisi sebelumnya
                     if (newPosition < 1) return;
@@ -609,11 +604,6 @@
                 async moveRequestDown(requestId, currentIndex) {
                     if (!this.isAdmin) {
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
-                        return;
-                    }
-
-                    if (this.randomQueueEnabled) {
-                        this.showToast('Mode antrian acak aktif. Urutan manual dinonaktifkan.', 'warning');
                         return;
                     }
                     
@@ -865,7 +855,6 @@
                 
                 calculateWaitTime(position) {
                     if (position <= 0) return 0;
-                    if (this.randomQueueEnabled) return 0;
                     
                     const currentRemaining = this.lockRemaining > 0 ? 
                         this.lockRemaining / 60 : 0;

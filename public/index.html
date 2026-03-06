@@ -651,13 +651,13 @@
                                 <template x-if="isAdmin">
                                     <div class="flex flex-col gap-1">
                                         <button @click="moveRequestUp(item.id, index)"
-                                                :disabled="index === 0 || randomQueueEnabled"
+                                                :disabled="index === 0"
                                                 class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
                                                 title="Pindah ke atas">
                                             <i class="fas fa-arrow-up"></i>
                                         </button>
                                         <button @click="moveRequestDown(item.id, index)"
-                                                :disabled="index === queue.length - 1 || randomQueueEnabled"
+                                                :disabled="index === queue.length - 1"
                                                 class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
                                                 title="Pindah ke bawah">
                                             <i class="fas fa-arrow-down"></i>
@@ -666,7 +666,7 @@
                                 </template>
 
                                 <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center min-w-[70px]">
-                                    <span x-text="randomQueueEnabled ? 'acak' : ('~' + calculateWaitTime(index + 1) + 'm')"></span>
+                                    <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
                                 </div>
                                 
                                 <!-- Tombol Hapus (Hanya Super Admin) -->
@@ -728,7 +728,7 @@
                         <!-- Actions Mobile -->
                         <div class="mobile-queue-actions">
                             <div class="text-xs text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center">
-                                <span x-text="randomQueueEnabled ? 'acak' : ('~' + calculateWaitTime(index + 1) + 'm')"></span>
+                                <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
                             </div>
                             
                             <div class="mobile-action-buttons">
@@ -736,13 +736,13 @@
                                 <template x-if="isAdmin">
                                     <div class="flex gap-1">
                                         <button @click="moveRequestUp(item.id, index)"
-                                                :disabled="index === 0 || randomQueueEnabled"
+                                                :disabled="index === 0"
                                                 class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
                                                 title="Pindah ke atas">
                                             <i class="fas fa-arrow-up text-xs"></i>
                                         </button>
                                         <button @click="moveRequestDown(item.id, index)"
-                                                :disabled="index === queue.length - 1 || randomQueueEnabled"
+                                                :disabled="index === queue.length - 1"
                                                 class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
                                                 title="Pindah ke bawah">
                                             <i class="fas fa-arrow-down text-xs"></i>
