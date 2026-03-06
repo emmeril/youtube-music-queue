@@ -534,7 +534,7 @@ function getRandomQueueMeta() {
     description: state.randomQueueEnabled
       ? `Lagu berikutnya dipilih acak dari ${FAIR_RANDOM_POOL_SIZE} antrian teratas. Request yang paling lama menunggu punya peluang terbesar, request baru tidak memotong antrean lama, dan priority tetap didahulukan.`
       : 'Antrian diputar sesuai urutan masuk.',
-    shortLabel: state.randomQueueEnabled ? `Fair random oldest ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
+    shortLabel: state.randomQueueEnabled ? `Fair random ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
   };
 }
 
