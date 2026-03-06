@@ -7,7 +7,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
 const PORT = 4786;
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -171,6 +171,7 @@ let state = {
     totalSongsPlayed: 0,
     totalPlayTime: 0
   },
+  randomQueueEnabled: false,
   songEndTimeout: null,
   requestStartTime: 0,
   originalLockDuration: 0
@@ -429,6 +430,46 @@ function getQueueWithPosition() {
   return state.requestQueue.map((req, index) => ({ ...req, position: index + 1 }));
 }
 
+function extractRandomQueueEnabled(statsPayload) {
+  if (!statsPayload || typeof statsPayload !== 'object') return false;
+  return normalizeBoolean(statsPayload._queueSettings?.randomQueueEnabled);
+}
+
+function sanitizeStats(statsPayload) {
+  const safeStats = statsPayload && typeof statsPayload === 'object' ? { ...statsPayload } : {};
+  delete safeStats._queueSettings;
+  return {
+    totalRequests: Number.isFinite(Number(safeStats.totalRequests)) ? Number(safeStats.totalRequests) : 0,
+    totalSongsPlayed: Number.isFinite(Number(safeStats.totalSongsPlayed)) ? Number(safeStats.totalSongsPlayed) : 0,
+    totalPlayTime: Number.isFinite(Number(safeStats.totalPlayTime)) ? Number(safeStats.totalPlayTime) : 0
+  };
+}
+
+function buildPersistedStats() {
+  return {
+    ...state.stats,
+    _queueSettings: {
+      randomQueueEnabled: state.randomQueueEnabled
+    }
+  };
+}
+
+function pickNextQueueRequest() {
+  if (state.requestQueue.length === 0) return null;
+
+  const priorityIndex = state.requestQueue.findIndex((request) => request.isPriority);
+  if (priorityIndex !== -1) {
+    return state.requestQueue.splice(priorityIndex, 1)[0];
+  }
+
+  if (!state.randomQueueEnabled) {
+    return state.requestQueue.shift();
+  }
+
+  const randomIndex = Math.floor(Math.random() * state.requestQueue.length);
+  return state.requestQueue.splice(randomIndex, 1)[0];
+}
+
 function getCurrentLockProgress(now = Date.now()) {
   if (state.requestStartTime <= 0 || state.originalLockDuration <= 0) return 0;
   return Math.min(100, ((now - state.requestStartTime) / state.originalLockDuration) * 100);
@@ -635,7 +676,8 @@ async function loadData() {
       state.activeRequest = appState.activeRequest;
       state.requestLockUntil = appState.requestLockUntil || 0;
       state.currentSong = appState.currentSong || state.currentSong;
-      state.stats = appState.stats || state.stats;
+      state.randomQueueEnabled = extractRandomQueueEnabled(appState.stats);
+      state.stats = sanitizeStats(appState.stats);
       state.requestStartTime = appState.requestStartTime || 0;
       state.originalLockDuration = appState.originalLockDuration || 0;
     }
@@ -762,7 +804,7 @@ function getAppStateSignature() {
     activeRequest: state.activeRequest,
     requestLockUntil: state.requestLockUntil,
     currentSong: state.currentSong,
-    stats: state.stats,
+    stats: buildPersistedStats(),
     requestStartTime: state.requestStartTime,
     originalLockDuration: state.originalLockDuration
   });
@@ -774,7 +816,7 @@ function buildAppStatePayload() {
     activeRequest: state.activeRequest,
     requestLockUntil: state.requestLockUntil,
     currentSong: state.currentSong,
-    stats: state.stats,
+    stats: buildPersistedStats(),
     requestStartTime: state.requestStartTime,
     originalLockDuration: state.originalLockDuration
   };
@@ -1062,6 +1104,7 @@ app.get('/status', (req, res) => {
     queueLimit,
     remainingSlots,
     stats: state.stats,
+    randomQueueEnabled: state.randomQueueEnabled,
     lockInfo: {
       basedOnSongDuration: state.currentSong.duration,
       originalLock: state.originalLockDuration,
@@ -1093,7 +1136,7 @@ app.get('/get-request', async (req, res) => {
       return res.status(204).send();
     }
     
-    const nextRequest = state.requestQueue.shift();
+    const nextRequest = pickNextQueueRequest();
     const parsedQuery = parseSongQuery(nextRequest.query);
     state.activeRequest = {
       ...nextRequest,
@@ -1122,6 +1165,7 @@ app.get('/get-request', async (req, res) => {
       parsedTitle: parsedQuery.title || nextRequest.query,
       parsedArtist: parsedQuery.artist || DEFAULT_UNKNOWN_ARTIST,
       estimatedDuration: lockDuration,
+      randomQueueEnabled: state.randomQueueEnabled,
       queueRemaining: state.requestQueue.length,
       lockUntil: state.requestLockUntil,
       songDuration: state.currentSong.duration
@@ -1178,6 +1222,10 @@ app.post('/request-song', async (req, res) => {
 
 app.post('/admin/move-request', requireAdmin, async (req, res) => {
   try {
+    if (state.randomQueueEnabled) {
+      return sendError(res, 409, 'RANDOM_QUEUE_ENABLED', 'Urutan manual dinonaktifkan saat mode antrian acak aktif');
+    }
+
     const { requestId } = req.body;
     if (!requestId || !isStrictPositiveInteger(req.body.newPosition)) {
       return sendError(res, 400, 'REQUEST_ID_AND_POSITION_REQUIRED', 'requestId dan newPosition diperlukan');
@@ -1228,10 +1276,26 @@ app.get('/requests', (req, res) => {
     activeRequest: state.activeRequest,
     queue: requestsWithWait,
     total: state.requestQueue.length,
+    randomQueueEnabled: state.randomQueueEnabled,
     isLocked,
     lockRemaining,
     ...queueMeta
   });
+});
+
+app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
+  try {
+    state.randomQueueEnabled = normalizeBoolean(req.body?.enabled);
+    await saveAppState();
+
+    res.json({
+      success: true,
+      message: `Mode antrian acak ${state.randomQueueEnabled ? 'diaktifkan' : 'dimatikan'}`,
+      randomQueueEnabled: state.randomQueueEnabled
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
 });
 
 app.post('/song-ended', async (req, res) => {
@@ -1417,6 +1481,7 @@ app.get('/queue-info', (req, res) => {
     currentSong: state.currentSong,
     queue: getQueueWithPosition(),
     queueLength: state.requestQueue.length,
+    randomQueueEnabled: state.randomQueueEnabled,
     totalQueueTime: Math.round(totalQueueMinutes * 10) / 10,
     ...queueMeta
   });
@@ -1445,6 +1510,7 @@ app.get('/stats', (req, res) => {
     remainingSlots,
     historyCount: state.history.length,
     stats: state.stats,
+    randomQueueEnabled: state.randomQueueEnabled,
     persistence: getPersistenceMetricsSnapshot(),
     isLocked,
     lockRemaining
@@ -1500,9 +1566,10 @@ app.get('/version', (req, res) => {
   res.json({
     version: APP_VERSION,
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic'],
+    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle'],
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
+    randomQueueEnabled: state.randomQueueEnabled,
     activeUsers: adminSession ? 1 : 0
   });
 });
@@ -1518,6 +1585,7 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     queueLimit,
     currentQueue: state.requestQueue.length,
+    randomQueueEnabled: state.randomQueueEnabled,
     persistence,
     isLocked,
     lockRemaining

@@ -1,7 +1,7 @@
         function app() {
             return {
                 // State
-                appVersion: '2.3.0',
+                appVersion: '2.4.0',
                 currentSong: {
                     title: '',
                     artist: '',
@@ -24,6 +24,7 @@
                     originalLock: 0,
                     basedOnSongDuration: 0
                 },
+                randomQueueEnabled: false,
                 queueLimit: 100,
                 newRequest: {
                     title: '',
@@ -221,6 +222,7 @@
                             this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
                             this.queueLimit = statusData.queueLimit || 100;
+                            this.randomQueueEnabled = Boolean(statusData.randomQueueEnabled);
                         }
                         
                         if (queueResult.ok) {
@@ -228,6 +230,7 @@
                             this.queue = queueData.queue || [];
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
+                            this.randomQueueEnabled = Boolean(queueData.randomQueueEnabled);
                         }
                         
                     } catch (error) {
@@ -572,6 +575,11 @@
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
                         return;
                     }
+
+                    if (this.randomQueueEnabled) {
+                        this.showToast('Mode antrian acak aktif. Urutan manual dinonaktifkan.', 'warning');
+                        return;
+                    }
                     
                     const newPosition = currentIndex; // Pindah ke posisi sebelumnya
                     if (newPosition < 1) return;
@@ -603,6 +611,11 @@
                         this.showToast('Hanya admin yang bisa memindahkan request', 'error');
                         return;
                     }
+
+                    if (this.randomQueueEnabled) {
+                        this.showToast('Mode antrian acak aktif. Urutan manual dinonaktifkan.', 'warning');
+                        return;
+                    }
                     
                     const newPosition = currentIndex + 2; // Pindah ke posisi berikutnya
                     if (newPosition > this.queue.length) return;
@@ -625,6 +638,35 @@
                         }
                     } catch (error) {
                         this.showToast('Gagal memindahkan request', 'error');
+                    }
+                },
+
+                async toggleRandomQueue() {
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa mengubah mode antrian', 'error');
+                        return;
+                    }
+
+                    const nextValue = !this.randomQueueEnabled;
+
+                    try {
+                        const result = await this.apiRequest('/admin/queue-random-mode', {
+                            method: 'POST',
+                            headers: this.getAdminHeaders(true),
+                            body: JSON.stringify({
+                                enabled: nextValue
+                            })
+                        });
+
+                        if (result.ok) {
+                            this.randomQueueEnabled = Boolean(result.data?.randomQueueEnabled);
+                            await this.loadData();
+                            this.showToast(result.data?.message || 'Mode antrian diperbarui', 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal mengubah mode antrian');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal mengubah mode antrian', 'error');
                     }
                 },
                 
@@ -823,6 +865,7 @@
                 
                 calculateWaitTime(position) {
                     if (position <= 0) return 0;
+                    if (this.randomQueueEnabled) return 0;
                     
                     const currentRemaining = this.lockRemaining > 0 ? 
                         this.lockRemaining / 60 : 0;
