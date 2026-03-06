@@ -17,6 +17,7 @@ const DEFAULT_SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Kuc
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
+const FAIR_RANDOM_POOL_SIZE = 20;
 const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 
@@ -525,19 +526,35 @@ function buildPersistedStats() {
   };
 }
 
-function shuffleArray(items) {
-  const clonedItems = [...items];
-  for (let index = clonedItems.length - 1; index > 0; index--) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [clonedItems[index], clonedItems[randomIndex]] = [clonedItems[randomIndex], clonedItems[index]];
-  }
-  return clonedItems;
+function getRandomQueueMeta() {
+  return {
+    enabled: state.randomQueueEnabled,
+    mode: state.randomQueueEnabled ? 'fair-random' : 'fifo',
+    poolSize: FAIR_RANDOM_POOL_SIZE,
+    description: state.randomQueueEnabled
+      ? `Lagu berikutnya dipilih acak berbobot dari ${FAIR_RANDOM_POOL_SIZE} antrean teratas. Request lama lebih diprioritaskan, request baru tidak memotong antrean lama, dan priority tetap didahulukan.`
+      : 'Antrian diputar sesuai urutan masuk.',
+    shortLabel: state.randomQueueEnabled ? `Fair random top ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
+  };
 }
 
-function shuffleQueueForRandomMode() {
-  const priorityRequests = state.requestQueue.filter((request) => request.isPriority);
-  const regularRequests = state.requestQueue.filter((request) => !request.isPriority);
-  state.requestQueue = [...priorityRequests, ...shuffleArray(regularRequests)];
+function pickWeightedRandomIndex(poolSize) {
+  if (poolSize <= 1) return 0;
+
+  let totalWeight = 0;
+  for (let index = 0; index < poolSize; index++) {
+    totalWeight += (poolSize - index);
+  }
+
+  let randomWeight = Math.random() * totalWeight;
+  for (let index = 0; index < poolSize; index++) {
+    randomWeight -= (poolSize - index);
+    if (randomWeight < 0) {
+      return index;
+    }
+  }
+
+  return 0;
 }
 
 function insertRequestIntoQueue(newRequest, position) {
@@ -551,15 +568,28 @@ function insertRequestIntoQueue(newRequest, position) {
     return state.requestQueue.length;
   }
 
-  const priorityCount = state.requestQueue.filter((request) => request.isPriority).length;
-  const insertIndex = priorityCount + Math.floor(Math.random() * (state.requestQueue.length - priorityCount + 1));
+  // Fair random mode: preserve the relative order of requests that are already queued.
+  // New regular requests join after the existing non-priority block instead of cutting in line.
+  const insertIndex = state.requestQueue.length;
   state.requestQueue.splice(insertIndex, 0, newRequest);
   return insertIndex + 1;
 }
 
 function pickNextQueueRequest() {
   if (state.requestQueue.length === 0) return null;
-  return state.requestQueue.shift();
+
+  const priorityIndex = state.requestQueue.findIndex((request) => request.isPriority);
+  if (priorityIndex !== -1) {
+    return state.requestQueue.splice(priorityIndex, 1)[0];
+  }
+
+  if (!state.randomQueueEnabled) {
+    return state.requestQueue.shift();
+  }
+
+  const poolSize = Math.min(FAIR_RANDOM_POOL_SIZE, state.requestQueue.length);
+  const selectedIndex = pickWeightedRandomIndex(poolSize);
+  return state.requestQueue.splice(selectedIndex, 1)[0];
 }
 
 function getCurrentLockProgress(now = Date.now()) {
@@ -1271,7 +1301,8 @@ app.get('/status', (req, res) => {
       basedOnSongDuration: state.currentSong.duration,
       originalLock: state.originalLockDuration,
       currentProgress: getCurrentLockProgress(now)
-    }
+    },
+    randomQueue: getRandomQueueMeta()
   });
 });
 
@@ -1328,6 +1359,7 @@ app.get('/get-request', async (req, res) => {
       parsedArtist: parsedQuery.artist || DEFAULT_UNKNOWN_ARTIST,
       estimatedDuration: lockDuration,
       randomQueueEnabled: state.randomQueueEnabled,
+      randomQueue: getRandomQueueMeta(),
       queueRemaining: state.requestQueue.length,
       lockUntil: state.requestLockUntil,
       songDuration: state.currentSong.duration
@@ -1428,6 +1460,7 @@ app.get('/requests', (req, res) => {
     queue: requestsWithWait,
     total: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
+    randomQueue: getRandomQueueMeta(),
     isLocked,
     lockRemaining,
     ...queueMeta
@@ -1437,21 +1470,14 @@ app.get('/requests', (req, res) => {
 app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
   try {
     const nextEnabled = normalizeBoolean(req.body?.enabled);
-    const changed = state.randomQueueEnabled !== nextEnabled;
     state.randomQueueEnabled = nextEnabled;
-
-    if (state.randomQueueEnabled && changed) {
-      shuffleQueueForRandomMode();
-      console.log('🔀 Queue shuffled because random mode was enabled');
-      await saveRequests();
-    } else {
-      await saveAppState();
-    }
+    await saveAppState();
 
     res.json({
       success: true,
       message: `Mode antrian acak ${state.randomQueueEnabled ? 'diaktifkan' : 'dimatikan'}`,
-      randomQueueEnabled: state.randomQueueEnabled
+      randomQueueEnabled: state.randomQueueEnabled,
+      randomQueue: getRandomQueueMeta()
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
@@ -1645,6 +1671,7 @@ app.get('/queue-info', (req, res) => {
     queue: getQueueWithPosition(),
     queueLength: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
+    randomQueue: getRandomQueueMeta(),
     totalQueueTime: Math.round(totalQueueMinutes * 10) / 10,
     ...queueMeta
   });
@@ -1674,6 +1701,7 @@ app.get('/stats', (req, res) => {
     historyCount: state.history.length,
     stats: state.stats,
     randomQueueEnabled: state.randomQueueEnabled,
+    randomQueue: getRandomQueueMeta(),
     persistence: getPersistenceMetricsSnapshot(),
     isLocked,
     lockRemaining

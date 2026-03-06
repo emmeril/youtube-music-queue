@@ -25,6 +25,13 @@
                     basedOnSongDuration: 0
                 },
                 randomQueueEnabled: false,
+                randomQueue: {
+                    enabled: false,
+                    mode: 'fifo',
+                    poolSize: 20,
+                    description: 'Antrian diputar sesuai urutan masuk.',
+                    shortLabel: 'FIFO'
+                },
                 queueLimit: 100,
                 newRequest: {
                     title: '',
@@ -223,6 +230,7 @@
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
                             this.queueLimit = statusData.queueLimit || 100;
                             this.randomQueueEnabled = Boolean(statusData.randomQueueEnabled);
+                            this.randomQueue = statusData.randomQueue || this.randomQueue;
                         }
                         
                         if (queueResult.ok) {
@@ -231,6 +239,7 @@
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
                             this.randomQueueEnabled = Boolean(queueData.randomQueueEnabled);
+                            this.randomQueue = queueData.randomQueue || this.randomQueue;
                         }
                         
                     } catch (error) {
@@ -672,6 +681,7 @@
 
                         if (result.ok) {
                             this.randomQueueEnabled = Boolean(result.data?.randomQueueEnabled);
+                            this.randomQueue = result.data?.randomQueue || this.randomQueue;
                             await this.loadData();
                             this.showToast(result.data?.message || 'Mode antrian diperbarui', 'success');
                         } else {
