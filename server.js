@@ -12,6 +12,8 @@ const APP_VERSION = '2.3.0';
 // Konstanta
 const QUEUE_LIMIT = 100;
 const MAX_REQUESTS_PER_ARTIST = 3;
+const DEFAULT_ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || 'Monse@2026';
+const DEFAULT_SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Kucing@123';
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
@@ -421,6 +423,19 @@ async function upsertAdminCredential(role, password) {
   });
 }
 
+async function ensureDefaultAdminCredentials() {
+  const credentialsToSeed = [
+    { role: 'admin', password: DEFAULT_ADMIN_DB_PASSWORD },
+    { role: 'super', password: DEFAULT_SUPER_ADMIN_DB_PASSWORD }
+  ];
+
+  for (const credential of credentialsToSeed) {
+    if (await hasAdminCredential(credential.role)) continue;
+    await upsertAdminCredential(credential.role, credential.password);
+    console.log(`🔐 Default ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential inserted into database`);
+  }
+}
+
 function normalizeBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
@@ -692,6 +707,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
 async function loadData() {
   try {
     await sequelize.sync();
+    await ensureDefaultAdminCredentials();
 
     // Load antrian
     const requests = await Request.findAll({ order: [['queueOrder', 'ASC']] });
