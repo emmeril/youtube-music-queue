@@ -7,7 +7,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
 const PORT = 4786;
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -253,6 +253,18 @@ function resetRequestLockState() {
   state.originalLockDuration = 0;
 }
 
+function stopCurrentPlayback() {
+  state.currentSong.isPlaying = false;
+}
+
+function finalizeActiveRequest(status, extraFields = {}) {
+  if (!state.activeRequest) return;
+
+  state.activeRequest.status = status;
+  Object.assign(state.activeRequest, extraFields);
+  state.activeRequest = null;
+}
+
 function scheduleAutoUnlock(lockDuration) {
   clearSongEndTimeout();
   if (lockDuration > 0) {
@@ -261,11 +273,9 @@ function scheduleAutoUnlock(lockDuration) {
       if (state.requestLockUntil > 0 && now >= state.requestLockUntil) {
         console.log(`⏰ Auto-unlock triggered for song completion`);
         resetRequestLockState();
-        state.currentSong.isPlaying = false;
+        stopCurrentPlayback();
         if (state.activeRequest) {
-          state.activeRequest.status = 'auto_completed';
-          state.activeRequest.autoCompletedAt = now;
-          state.activeRequest = null;
+          finalizeActiveRequest('auto_completed', { autoCompletedAt: now });
           saveRequests(); // async, tidak perlu await
         } else {
           saveAppState(); // async, tidak perlu await
@@ -1331,9 +1341,10 @@ app.get('/get-request', async (req, res) => {
     
     if (state.requestQueue.length === 0) {
       if (state.activeRequest) {
-        state.activeRequest.status = 'completed';
-        state.activeRequest.completedAt = now;
-        state.activeRequest = null;
+        clearSongEndTimeout();
+        resetRequestLockState();
+        stopCurrentPlayback();
+        finalizeActiveRequest('completed', { completedAt: now });
         await saveRequests();
       }
       return res.status(204).send();
@@ -1552,14 +1563,11 @@ app.post('/song-ended', async (req, res) => {
     clearSongEndTimeout();
     
     resetRequestLockState();
-    state.currentSong.isPlaying = false;
-    
-    if (state.activeRequest) {
-      state.activeRequest.status = 'completed';
-      state.activeRequest.completedAt = now;
-      state.activeRequest.actualDuration = now - state.activeRequest.startedAt;
-      state.activeRequest = null;
-    }
+    stopCurrentPlayback();
+    finalizeActiveRequest('completed', {
+      completedAt: now,
+      actualDuration: state.activeRequest ? now - state.activeRequest.startedAt : undefined
+    });
     
     await saveRequests();
     res.json({ 
@@ -1617,12 +1625,8 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
     clearSongEndTimeout();
     
     resetRequestLockState();
-    
-    if (state.activeRequest) {
-      state.activeRequest.status = 'skipped';
-      state.activeRequest.skippedAt = Date.now();
-      state.activeRequest = null;
-    }
+    stopCurrentPlayback();
+    finalizeActiveRequest('skipped', { skippedAt: Date.now() });
     
     await saveRequests();
     res.json({ 
@@ -1643,13 +1647,8 @@ app.post('/force-next', requireSuperAdmin, async (req, res) => {
     clearSongEndTimeout();
     
     resetRequestLockState();
-    state.currentSong.isPlaying = false;
-    
-    if (state.activeRequest) {
-      state.activeRequest.status = 'force_skipped';
-      state.activeRequest.forceSkippedAt = Date.now();
-      state.activeRequest = null;
-    }
+    stopCurrentPlayback();
+    finalizeActiveRequest('force_skipped', { forceSkippedAt: Date.now() });
     
     await saveRequests();
     res.json({ success: true, message: 'Force skip completed', timestamp: Date.now() });
@@ -1669,7 +1668,8 @@ app.delete('/remove-request/:id', requireSuperAdmin, async (req, res) => {
     if (state.activeRequest && state.activeRequest.id === id) {
       clearSongEndTimeout();
       resetRequestLockState();
-      state.activeRequest = null;
+      stopCurrentPlayback();
+      finalizeActiveRequest('removed', { removedAt: Date.now() });
       console.log(`⚠️ Active request removed: "${removed.query}"`);
     }
     
@@ -1692,7 +1692,10 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
   try {
     const previousCount = state.requestQueue.length;
     state.requestQueue = [];
-    state.activeRequest = null;
+    if (state.activeRequest) {
+      finalizeActiveRequest('cleared', { clearedAt: Date.now() });
+    }
+    stopCurrentPlayback();
     resetRequestLockState();
     
     clearSongEndTimeout();
@@ -1844,10 +1847,9 @@ setInterval(async () => {
   if (now > state.requestLockUntil && state.requestLockUntil > 0) {
     console.log(`🔄 Auto-unlock: Lock expired`);
     resetRequestLockState();
+    stopCurrentPlayback();
     if (state.activeRequest) {
-      state.activeRequest.status = 'auto_completed';
-      state.activeRequest.autoCompletedAt = now;
-      state.activeRequest = null;
+      finalizeActiveRequest('auto_completed', { autoCompletedAt: now });
       changed = true;
     }
     clearSongEndTimeout();
@@ -1856,7 +1858,7 @@ setInterval(async () => {
   
   if (state.currentSong.isPlaying && now - state.currentSong.timestamp > 60000) {
     console.log('🔄 Auto-reset: No song update for 1 minutes');
-    state.currentSong.isPlaying = false;
+    stopCurrentPlayback();
     changed = true;
   }
   

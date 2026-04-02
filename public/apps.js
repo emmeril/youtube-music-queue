@@ -853,6 +853,8 @@
                             const savedVersion = localStorage.getItem('appVersion');
                             
                             if (savedVersion && savedVersion !== data.version) {
+                                localStorage.setItem('appVersion', data.version);
+                                this.appVersion = data.version;
                                 // Versi berubah, reload halaman
                                 this.showToast('Aplikasi telah diperbarui. Memuat ulang...', 'info');
                                 setTimeout(() => {
