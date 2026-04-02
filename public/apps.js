@@ -1,6 +1,7 @@
         function app() {
             return {
                 // State
+                appVersion: '2.4.0',
                 currentSong: {
                     title: '',
                     artist: '',
@@ -71,6 +72,7 @@
                         this.isPageVisible = !document.hidden;
                         if (this.isPageVisible) {
                             await this.loadData();
+                            await this.checkVersion();
                         }
                     });
 
@@ -95,7 +97,10 @@
                     }
                     
                     await this.loadData();
-
+                    
+                    // Cek versi aplikasi
+                    await this.checkVersion();
+                    
                     // Auto refresh data every 3 seconds
                     setInterval(async () => {
                         if (!this.isPageVisible) return;
@@ -114,6 +119,11 @@
                         }
                     }, 60000);
                     
+                    // Cek versi aplikasi setiap 2 menit
+                    setInterval(async () => {
+                        if (!this.isPageVisible) return;
+                        await this.checkVersion();
+                    }, 120000);
                 },
 
                 getAdminHeaders(includeJson = false) {
@@ -831,6 +841,33 @@
                         }
                     } catch (error) {
                         console.error('Session check error:', error);
+                    }
+                },
+                
+                // Check app version
+                async checkVersion() {
+                    try {
+                        const result = await this.apiRequest('/version');
+                        if (result.ok) {
+                            const data = result.data || {};
+                            const savedVersion = localStorage.getItem('appVersion');
+                            
+                            if (savedVersion && savedVersion !== data.version) {
+                                localStorage.setItem('appVersion', data.version);
+                                this.appVersion = data.version;
+                                // Versi berubah, reload halaman
+                                this.showToast('Aplikasi telah diperbarui. Memuat ulang...', 'info');
+                                setTimeout(() => {
+                                    window.location.reload();
+                                }, 2000);
+                            } else {
+                                // Simpan versi baru
+                                localStorage.setItem('appVersion', data.version);
+                                this.appVersion = data.version;
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Version check error:', error);
                     }
                 },
                 

@@ -7,6 +7,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
 const PORT = 4786;
+const APP_VERSION = '2.3.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -1836,6 +1837,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
 
 app.get('/version', (req, res) => {
   res.json({
+    version: APP_VERSION,
     buildTime: Date.now(),
     features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle'],
     serverUptime: process.uptime(),
@@ -1852,6 +1854,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: Date.now(),
+    version: APP_VERSION,
     uptime: process.uptime(),
     queueLimit,
     currentQueue: state.requestQueue.length,
