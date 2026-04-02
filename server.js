@@ -272,11 +272,29 @@ function isPlaceholderSong(song) {
 }
 
 function finalizeActiveRequest(status, extraFields = {}) {
-  if (!state.activeRequest) return;
+  if (!state.activeRequest) return null;
+
+  const finalizedRequest = {
+    ...state.activeRequest,
+    status,
+    ...extraFields
+  };
 
   state.activeRequest.status = status;
   Object.assign(state.activeRequest, extraFields);
   state.activeRequest = null;
+
+  return finalizedRequest;
+}
+
+async function finalizeAndArchiveActiveRequest(status, extraFields = {}) {
+  if (!state.activeRequest) return null;
+
+  const songSnapshot = { ...state.currentSong };
+  const finalizedRequest = finalizeActiveRequest(status, extraFields);
+  await addToHistory(songSnapshot, finalizedRequest);
+
+  return finalizedRequest;
 }
 
 function scheduleAutoUnlock(lockDuration) {
@@ -289,8 +307,9 @@ function scheduleAutoUnlock(lockDuration) {
         resetRequestLockState();
         stopCurrentPlayback();
         if (state.activeRequest) {
-          finalizeActiveRequest('auto_completed', { autoCompletedAt: now });
-          saveRequests(); // async, tidak perlu await
+          finalizeAndArchiveActiveRequest('auto_completed', { autoCompletedAt: now })
+            .then(() => saveRequests())
+            .catch((error) => console.error('Error archiving auto-completed request:', error));
         } else {
           saveAppState(); // async, tidak perlu await
         }
@@ -1327,10 +1346,6 @@ app.post('/update', async (req, res) => {
       }
     }
     
-    if (isNewSongFlag && state.activeRequest) {
-      await addToHistory(previousSong, state.activeRequest);
-    }
-    
     await saveAppState();
     
     res.json({
@@ -1387,7 +1402,7 @@ app.get('/get-request', async (req, res) => {
         clearSongEndTimeout();
         resetRequestLockState();
         stopCurrentPlayback();
-        finalizeActiveRequest('completed', { completedAt: now });
+        await finalizeAndArchiveActiveRequest('completed', { completedAt: now });
         await saveRequests();
       }
       return res.status(204).send();
@@ -1560,6 +1575,7 @@ app.post('/admin/request-priority/:id', requireAdmin, async (req, res) => {
 app.get('/requests', (req, res) => {
   const { isLocked, lockRemaining } = getLockState();
   const queueMeta = getQueueMeta();
+  const remainingSeconds = isLocked ? Math.ceil(lockRemaining / 1000) : 0;
   const requestsWithWait = state.requestQueue.map((req, index) => ({
     ...req,
     position: index + 1,
@@ -1603,7 +1619,7 @@ app.post('/song-ended', async (req, res) => {
     
     resetRequestLockState();
     stopCurrentPlayback();
-    finalizeActiveRequest('completed', {
+    await finalizeAndArchiveActiveRequest('completed', {
       completedAt: now,
       actualDuration: state.activeRequest ? now - state.activeRequest.startedAt : undefined
     });
@@ -1659,12 +1675,13 @@ app.post('/verify-match', (req, res) => {
 
 app.post('/skip-current', requireSuperAdmin, async (req, res) => {
   try {
+    const skippedAt = Date.now();
     console.log('[PLAYBACK] Skip current request requested');
     clearSongEndTimeout();
     
     resetRequestLockState();
     stopCurrentPlayback();
-    finalizeActiveRequest('skipped', { skippedAt: Date.now() });
+    await finalizeAndArchiveActiveRequest('skipped', { skippedAt });
     
     await saveRequests();
     res.json({ 
@@ -1680,15 +1697,16 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
 
 app.post('/force-next', requireSuperAdmin, async (req, res) => {
   try {
+    const forceSkippedAt = Date.now();
     console.log('[PLAYBACK] Force next requested');
     clearSongEndTimeout();
     
     resetRequestLockState();
     stopCurrentPlayback();
-    finalizeActiveRequest('force_skipped', { forceSkippedAt: Date.now() });
+    await finalizeAndArchiveActiveRequest('force_skipped', { forceSkippedAt });
     
     await saveRequests();
-    res.json({ success: true, message: 'Force skip completed', timestamp: Date.now() });
+    res.json({ success: true, message: 'Force skip completed', timestamp: forceSkippedAt });
   } catch (error) {
     return sendInternalError(res, req.path, error);
   }
@@ -1703,10 +1721,11 @@ app.delete('/remove-request/:id', requireSuperAdmin, async (req, res) => {
     const removed = state.requestQueue.splice(index, 1)[0];
     
     if (state.activeRequest && state.activeRequest.id === id) {
+      const removedAt = Date.now();
       clearSongEndTimeout();
       resetRequestLockState();
       stopCurrentPlayback();
-      finalizeActiveRequest('removed', { removedAt: Date.now() });
+      await finalizeAndArchiveActiveRequest('removed', { removedAt });
       console.log(`[QUEUE] Active request removed: "${removed.query}"`);
     }
     
@@ -1730,7 +1749,7 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
     const previousCount = state.requestQueue.length;
     state.requestQueue = [];
     if (state.activeRequest) {
-      finalizeActiveRequest('cleared', { clearedAt: Date.now() });
+      await finalizeAndArchiveActiveRequest('cleared', { clearedAt: Date.now() });
     }
     stopCurrentPlayback();
     resetRequestLockState();
@@ -1884,7 +1903,7 @@ setInterval(async () => {
     resetRequestLockState();
     stopCurrentPlayback();
     if (state.activeRequest) {
-      finalizeActiveRequest('auto_completed', { autoCompletedAt: now });
+      await finalizeAndArchiveActiveRequest('auto_completed', { autoCompletedAt: now });
       changed = true;
     }
     clearSongEndTimeout();

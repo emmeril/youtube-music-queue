@@ -8,6 +8,8 @@ const CONFIG = {
   DEBUG: true
 };
 
+const APP_RUNTIME_KEY = '__ytmBridgeRuntime';
+
 function getServerUrl() {
   try {
     const override = window.localStorage.getItem(CONFIG.SERVER_URL_STORAGE_KEY);
@@ -84,6 +86,20 @@ const state = {
   searchTarget: null
 };
 
+function getRuntime() {
+  if (!window[APP_RUNTIME_KEY]) {
+    window[APP_RUNTIME_KEY] = {
+      initialized: false,
+      songUpdateIntervalId: null,
+      requestCheckIntervalId: null,
+      videoMonitor: null,
+      searchAutoplay: null
+    };
+  }
+
+  return window[APP_RUNTIME_KEY];
+}
+
 // ================= VIDEO MONITORING =================
 class VideoMonitor {
   constructor() {
@@ -92,6 +108,10 @@ class VideoMonitor {
     this.lastUpdate = 0;
     this.isEnded = false;
     this.observer = null;
+    this.reinitTimeoutId = null;
+    this.boundOnEnded = this.onEnded.bind(this);
+    this.boundOnPlaying = this.onPlaying.bind(this);
+    this.boundOnTimeUpdate = this.onTimeUpdate.bind(this);
     this.init();
   }
 
@@ -99,7 +119,10 @@ class VideoMonitor {
     this.dispose();
     this.findVideoElement();
     if (!this.video) {
-      setTimeout(() => this.init(), 1000);
+      this.reinitTimeoutId = setTimeout(() => {
+        this.reinitTimeoutId = null;
+        this.init();
+      }, 1000);
       return;
     }
     this.setupEventListeners();
@@ -125,44 +148,67 @@ class VideoMonitor {
 
   setupEventListeners() {
     if (!this.video) return;
+    if (this.video.dataset.ytmBridgeBound === 'true') {
+      this.setupMutationObserver();
+      return;
+    }
 
-    this.video.addEventListener('ended', () => {
-      this.isEnded = true;
-      this.log('🎬 Video ended - triggering next song');
-      this.handleSongEnd();
-    });
+    this.video.dataset.ytmBridgeBound = 'true';
 
-    this.video.addEventListener('playing', () => {
-      if (this.isEnded) {
-        this.isEnded = false;
-        this.log('▶️ New song started playing');
-        setTimeout(() => SongManager.update(), 1000);
-      }
-    });
-
-    this.video.addEventListener('timeupdate', () => {
-      const now = Date.now();
-      if (now - this.lastUpdate > 1000) {
-        this.lastUpdate = now;
-
-        if (this.video.currentTime < 2 && this.lastTime > 30) {
-          this.log('🔄 Video reset detected - new song');
-          setTimeout(() => SongManager.update(), 1500);
-        }
-        this.lastTime = this.video.currentTime;
-      }
-    });
+    this.video.addEventListener('ended', this.boundOnEnded);
+    this.video.addEventListener('playing', this.boundOnPlaying);
+    this.video.addEventListener('timeupdate', this.boundOnTimeUpdate);
 
     this.setupMutationObserver();
   }
 
+  onEnded() {
+    this.isEnded = true;
+    this.log('Video ended - triggering next song');
+    this.handleSongEnd();
+  }
+
+  onPlaying() {
+    if (this.isEnded) {
+      this.isEnded = false;
+      this.log('New song started playing');
+      setTimeout(() => SongManager.update(), 1000);
+    }
+  }
+
+  onTimeUpdate() {
+    if (!this.video) return;
+
+    const now = Date.now();
+    if (now - this.lastUpdate <= 1000) {
+      return;
+    }
+
+    this.lastUpdate = now;
+
+    if (this.video.currentTime < 2 && this.lastTime > 30) {
+      this.log('Video reset detected - new song');
+      setTimeout(() => SongManager.update(), 1500);
+    }
+
+    this.lastTime = this.video.currentTime;
+  }
+
   setupMutationObserver() {
+    if (!document.body) return;
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+
     this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' || mutation.type === 'subtree') {
-          if (!document.contains(this.video)) {
-            this.log('Video element removed, reinitializing...');
-            setTimeout(() => this.init(), 500);
+        if (mutation.type === 'childList' && this.video && !document.contains(this.video)) {
+          this.log('Video element removed, reinitializing...');
+          if (!this.reinitTimeoutId) {
+            this.reinitTimeoutId = setTimeout(() => {
+              this.reinitTimeoutId = null;
+              this.init();
+            }, 500);
           }
         }
       });
@@ -175,6 +221,18 @@ class VideoMonitor {
   }
 
   dispose() {
+    if (this.reinitTimeoutId) {
+      clearTimeout(this.reinitTimeoutId);
+      this.reinitTimeoutId = null;
+    }
+
+    if (this.video) {
+      this.video.removeEventListener('ended', this.boundOnEnded);
+      this.video.removeEventListener('playing', this.boundOnPlaying);
+      this.video.removeEventListener('timeupdate', this.boundOnTimeUpdate);
+      delete this.video.dataset.ytmBridgeBound;
+    }
+
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
@@ -184,7 +242,7 @@ class VideoMonitor {
   handleSongEnd() {
     ServerAPI.notifySongEnded()
       .then(() => {
-        this.log('✅ Server notified of song end');
+        this.log('Server notified of song end');
         setTimeout(() => RequestProcessor.checkRequests(), 1000);
       })
       .catch((err) => this.error('Failed to notify server:', err));
@@ -224,7 +282,7 @@ class SongManager {
         this.sendToServer(songInfo, duration, isNewSong);
       }
     } catch (error) {
-      console.error('❌ SongManager error:', error);
+      console.error('SongManager error:', error);
     }
   }
 
@@ -439,14 +497,14 @@ class SongManager {
         state.currentSong = songData;
 
         if (isNewSong) {
-          this.log(`🎵 New song detected: ${songInfo.title} - ${songInfo.artist}`);
+          this.log(`New song detected: ${songInfo.title} - ${songInfo.artist}`);
           setTimeout(() => this.verifyRequestMatch(songInfo), 2000);
         }
 
         DebugPanel.update(songInfo, duration);
       }
     } catch (error) {
-      console.error('❌ Failed to send song data:', error);
+      console.error('Failed to send song data:', error);
     } finally {
       this.updateInFlight = false;
       if (this.pendingUpdate) {
@@ -466,7 +524,7 @@ class SongManager {
 
       const result = await response.json();
       if (result.isMatch && result.requestId) {
-        this.log(`✅ Song matches request: ${result.requestQuery}`);
+        this.log(`Song matches request: ${result.requestQuery}`);
       }
     } catch (error) {
       console.error('Error verifying match:', error);
@@ -517,6 +575,11 @@ class SearchAutoplay {
     if (this.timeoutId) {
       clearTimeout(this.timeoutId);
       this.timeoutId = null;
+    }
+
+    const runtime = getRuntime();
+    if (runtime.searchAutoplay === this) {
+      runtime.searchAutoplay = null;
     }
   }
 
@@ -756,10 +819,10 @@ class SearchAutoplay {
 
     const video = document.querySelector('video');
     if (video && (video.currentTime > 0 || !video.paused)) {
-      this.log('✅ Playback verified successfully');
+      this.log('Playback verified successfully');
       this.goBackAfterDelay();
     } else {
-      this.log('❌ Playback not detected, retrying...');
+      this.log('Playback not detected, retrying...');
       this.attempts = 0;
       this.start();
     }
@@ -795,7 +858,7 @@ class SearchAutoplay {
   goBackAfterDelay() {
     setTimeout(() => {
       if (window.location.href.includes('/search?q=') && window.history.length > 1) {
-        this.log('↩️ Returning to previous page...');
+        this.log('Returning to previous page...');
         window.history.back();
       }
     }, 3000);
@@ -865,10 +928,10 @@ class RequestProcessor {
           return;
         }
 
-        this.processRequest(request, signature);
+        await this.processRequest(request, signature);
       }
     } catch (error) {
-      console.error('❌ Error checking requests:', error);
+      console.error('Error checking requests:', error);
     } finally {
       this.isProcessing = false;
       state.isProcessingRequest = false;
@@ -881,8 +944,8 @@ class RequestProcessor {
 
     state.lastProcessedRequest = request;
     state.isProcessingRequest = true;
-    state.pendingRequestSignature = signature || this.getRequestSignature(request);
-    state.handledRequestSignature = state.pendingRequestSignature;
+    const nextSignature = signature || this.getRequestSignature(request);
+    state.pendingRequestSignature = nextSignature;
 
     try {
       DebugPanel.setStatus(`Processing: ${request.query}`);
@@ -894,15 +957,30 @@ class RequestProcessor {
 
       if (window.location.href === searchUrl) {
         this.log('Already on search page, starting autoplay');
-        new SearchAutoplay().start();
+        this.startSearchAutoplay();
+        state.handledRequestSignature = nextSignature;
       } else {
         this.log(`Redirecting to: ${searchUrl}`);
+        state.handledRequestSignature = nextSignature;
         window.location.href = searchUrl;
       }
+    } catch (error) {
+      state.handledRequestSignature = null;
+      throw error;
     } finally {
       state.isProcessingRequest = false;
       state.pendingRequestSignature = null;
     }
+  }
+
+  static startSearchAutoplay() {
+    const runtime = getRuntime();
+    if (runtime.searchAutoplay) {
+      runtime.searchAutoplay.stop();
+    }
+
+    runtime.searchAutoplay = new SearchAutoplay();
+    runtime.searchAutoplay.start();
   }
 
   static extractSearchTarget(request) {
@@ -1010,7 +1088,8 @@ class ServerAPI {
 // ================= DEBUG PANEL =================
 class DebugPanel {
   static panel = null;
-  static isVisible = true;
+  static content = null;
+  static isCollapsed = false;
 
   static create() {
     if (this.panel) return;
@@ -1040,14 +1119,15 @@ class DebugPanel {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <div style="width: 12px; height: 12px; background: #ff4757; border-radius: 50%; animation: pulse 1.5s infinite;"></div>
-          <div style="font-weight: 800; color: #ff4757; font-size: 14px; letter-spacing: 0.5px;">🎵 YT MUSIC BRIDGE</div>
+          <div style="font-weight: 800; color: #ff4757; font-size: 14px; letter-spacing: 0.5px;">YT MUSIC BRIDGE</div>
         </div>
         <div style="display: flex; gap: 6px;">
-          <button id="debug-toggle" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Toggle</button>
+          <button id="debug-toggle" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Hide</button>
           <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Refresh</button>
         </div>
       </div>
 
+      <div id="debug-content">
       <div style="margin-bottom: 8px;">
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">LAGU SAAT INI</div>
         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -1085,6 +1165,7 @@ class DebugPanel {
           <button id="debug-check" style="flex: 1; background: #3742fa; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Cek Request</button>
         </div>
       </div>
+      </div>
 
       <style>
         @keyframes pulse {
@@ -1104,13 +1185,17 @@ class DebugPanel {
     `;
 
     document.body.appendChild(this.panel);
+    this.content = document.getElementById('debug-content');
     this.setupEventListeners();
   }
 
   static setupEventListeners() {
     document.getElementById('debug-toggle').addEventListener('click', () => {
-      this.isVisible = !this.isVisible;
-      this.panel.style.display = this.isVisible ? 'block' : 'none';
+      this.isCollapsed = !this.isCollapsed;
+      if (this.content) {
+        this.content.style.display = this.isCollapsed ? 'none' : 'block';
+      }
+      document.getElementById('debug-toggle').textContent = this.isCollapsed ? 'Show' : 'Hide';
     });
 
     document.getElementById('debug-refresh').addEventListener('click', () => {
@@ -1209,11 +1294,17 @@ class DebugPanel {
 // ================= URL MONITOR =================
 class URLMonitor {
   static lastURL = '';
+  static intervalId = null;
+  static popstateAttached = false;
 
   static init() {
     this.lastURL = window.location.href;
 
-    setInterval(() => {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+    }
+
+    this.intervalId = setInterval(() => {
       const currentURL = window.location.href;
       if (currentURL !== this.lastURL) {
         this.handleURLChange(this.lastURL, currentURL);
@@ -1221,20 +1312,23 @@ class URLMonitor {
       }
     }, 1000);
 
-    window.addEventListener('popstate', () => {
-      setTimeout(() => {
-        this.handleURLChange(this.lastURL, window.location.href);
-        this.lastURL = window.location.href;
-      }, 100);
-    });
+    if (!this.popstateAttached) {
+      window.addEventListener('popstate', () => {
+        setTimeout(() => {
+          this.handleURLChange(this.lastURL, window.location.href);
+          this.lastURL = window.location.href;
+        }, 100);
+      });
+      this.popstateAttached = true;
+    }
   }
 
   static handleURLChange(oldURL, newURL) {
-    console.log(`🌐 URL changed: ${oldURL} → ${newURL}`);
+    console.log(`URL changed: ${oldURL} -> ${newURL}`);
 
     if (newURL.includes('/search?q=')) {
-      console.log('🔍 Search page detected, starting autoplay in 1.5s');
-      setTimeout(() => new SearchAutoplay().start(), 1500);
+      console.log('Search page detected, starting autoplay in 1.5s');
+      setTimeout(() => RequestProcessor.startSearchAutoplay(), 1500);
     }
 
     if (!oldURL.includes('music.youtube.com') || !newURL.includes('music.youtube.com')) {
@@ -1246,23 +1340,33 @@ class URLMonitor {
 
 // ================= INISIALISASI UTAMA =================
 function initialize() {
-  console.log('🚀 Initializing YouTube Music Bridge...');
+  const runtime = getRuntime();
+  if (runtime.initialized) {
+    console.log('YouTube Music Bridge is already initialized');
+    return;
+  }
 
-  new VideoMonitor();
+  runtime.initialized = true;
+  console.log('Initializing YouTube Music Bridge...');
+
+  runtime.videoMonitor = new VideoMonitor();
   URLMonitor.init();
   DebugPanel.create();
 
-  setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
-  setInterval(() => RequestProcessor.checkRequests(), CONFIG.REQUEST_CHECK_INTERVAL);
+  runtime.songUpdateIntervalId = setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
+  runtime.requestCheckIntervalId = setInterval(
+    () => RequestProcessor.checkRequests(),
+    CONFIG.REQUEST_CHECK_INTERVAL
+  );
 
   setTimeout(() => SongManager.update(), 1000);
   setTimeout(() => RequestProcessor.checkRequests(), 2000);
 
   if (window.location.href.includes('/search?q=')) {
-    setTimeout(() => new SearchAutoplay().start(), 2000);
+    setTimeout(() => RequestProcessor.startSearchAutoplay(), 2000);
   }
 
-  console.log('✅ YouTube Music Bridge initialized successfully!');
+  console.log('YouTube Music Bridge initialized successfully');
   DebugPanel.setStatus('Sistem aktif dan berjalan');
 }
 
