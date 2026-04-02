@@ -5,7 +5,9 @@
   "permissions": ["tabs"],
   "host_permissions": [
     "https://music.youtube.com/*",
-    "https://music.monse.co.id/*"
+    "https://music.monse.co.id/*",
+    "http://localhost:4786/*",
+    "http://127.0.0.1:4786/*"
   ],
   "content_scripts": [
     {

@@ -1,11 +1,70 @@
 // ================= KONFIGURASI =================
 const CONFIG = {
   SERVER_URL: 'https://music.monse.co.id',
+  SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
   SEARCH_TIMEOUT: 15000,
   DEBUG: true
 };
+
+function getServerUrl() {
+  try {
+    const override = window.localStorage.getItem(CONFIG.SERVER_URL_STORAGE_KEY);
+    if (override && /^https?:\/\//i.test(override)) {
+      return override.replace(/\/+$/, '');
+    }
+  } catch (error) {
+    // Fallback to the default server URL if localStorage is unavailable.
+  }
+
+  return CONFIG.SERVER_URL;
+}
+
+function normalizeServerUrl(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return '';
+  return trimmed.replace(/\/+$/, '');
+}
+
+async function probeServerUrl(url, timeoutMs = 1500) {
+  const normalizedUrl = normalizeServerUrl(url);
+  if (!normalizedUrl) return false;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${normalizedUrl}/health`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function detectServerUrl() {
+  const candidateUrls = [
+    'http://localhost:4786',
+    'http://127.0.0.1:4786',
+    normalizeServerUrl(getServerUrl()),
+    'https://music.monse.co.id'
+  ].filter((value, index, array) => value && array.indexOf(value) === index);
+
+  for (const candidate of candidateUrls) {
+    if (await probeServerUrl(candidate)) {
+      localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, candidate);
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 // ================= STATE MANAGEMENT =================
 const state = {
@@ -17,6 +76,8 @@ const state = {
   },
   lastProcessedRequest: null,
   isProcessingRequest: false,
+  pendingRequestSignature: null,
+  handledRequestSignature: null,
   debugMode: CONFIG.DEBUG,
   retryCount: 0,
   maxRetries: 3,
@@ -30,10 +91,12 @@ class VideoMonitor {
     this.lastTime = 0;
     this.lastUpdate = 0;
     this.isEnded = false;
+    this.observer = null;
     this.init();
   }
 
   init() {
+    this.dispose();
     this.findVideoElement();
     if (!this.video) {
       setTimeout(() => this.init(), 1000);
@@ -94,7 +157,7 @@ class VideoMonitor {
   }
 
   setupMutationObserver() {
-    const observer = new MutationObserver((mutations) => {
+    this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.type === 'childList' || mutation.type === 'subtree') {
           if (!document.contains(this.video)) {
@@ -105,10 +168,17 @@ class VideoMonitor {
       });
     });
 
-    observer.observe(document.body, {
+    this.observer.observe(document.body, {
       childList: true,
       subtree: true
     });
+  }
+
+  dispose() {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
   }
 
   handleSongEnd() {
@@ -135,9 +205,16 @@ class SongManager {
   static lastArtist = '';
   static lastDuration = 0;
   static updateCount = 0;
+  static updateInFlight = false;
+  static pendingUpdate = false;
 
   static update() {
     try {
+      if (this.updateInFlight) {
+        this.pendingUpdate = true;
+        return;
+      }
+
       const songInfo = this.extractSongInfo();
       const duration = this.getDuration();
 
@@ -154,6 +231,9 @@ class SongManager {
   static extractSongInfo() {
     const titleSelectors = [
       'ytmusic-player-bar .title',
+      'ytmusic-player-bar yt-formatted-string.title',
+      'ytmusic-player-bar [title]',
+      'ytmusic-player-bar [aria-label]',
       '.title.ytmusic-player-bar',
       'yt-formatted-string.title',
       '[data-title]',
@@ -164,36 +244,90 @@ class SongManager {
 
     const artistSelectors = [
       'ytmusic-player-bar .byline',
+      'ytmusic-player-bar yt-formatted-string.byline',
+      'ytmusic-player-bar .subtitle',
+      'ytmusic-player-bar [subtitle]',
       '.byline.ytmusic-player-bar',
       'yt-formatted-string.byline',
       '.artist-name',
       '.ytmusic-player-bar .yt-formatted-string.complex-string'
     ];
 
-    let title = 'Tidak diketahui';
-    let artist = 'Tidak diketahui';
+    const title = this.extractSongField(titleSelectors, 'title');
+    const artist = this.extractSongField(artistSelectors, 'artist', title);
 
-    for (const selector of titleSelectors) {
+    if (title !== 'Tidak diketahui' || artist !== 'Tidak diketahui') {
+      return { title, artist };
+    }
+
+    return this.extractSongInfoFromPageTitle();
+  }
+
+  static extractSongField(selectors, fieldType, title = '') {
+    for (const selector of selectors) {
       const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        title = element.textContent.trim();
-        break;
+      if (!element) continue;
+
+      const candidates = [
+        element.textContent,
+        element.getAttribute?.('title'),
+        element.getAttribute?.('aria-label'),
+        element.dataset?.title,
+        element.dataset?.name
+      ];
+
+      for (const candidate of candidates) {
+        const cleaned = this.cleanSongText(candidate, fieldType, title);
+        if (cleaned) return cleaned;
       }
     }
 
-    for (const selector of artistSelectors) {
-      const element = document.querySelector(selector);
-      if (element?.textContent?.trim()) {
-        let artistText = element.textContent.trim();
-        artistText = this.cleanArtistText(artistText);
-        if (artistText) {
-          artist = artistText;
-          break;
-        }
+    return 'Tidak diketahui';
+  }
+
+  static cleanSongText(text, fieldType = 'title', title = '') {
+    if (!text) return '';
+
+    let normalized = text.trim().replace(/\s+/g, ' ');
+    normalized = normalized.replace(/\u00a0/g, ' ');
+    normalized = normalized.replace(/[|\u2022\u00b7\u2013\u2014]+/g, ' - ');
+
+    if (fieldType === 'artist') {
+      normalized = this.cleanArtistText(normalized);
+      if (title && normalized.toLowerCase() === title.toLowerCase()) {
+        return '';
       }
     }
 
-    return { title, artist };
+    normalized = normalized.replace(/\b(Official|Audio|Video|Topic)\b/gi, ' ');
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+
+    return normalized || '';
+  }
+
+  static extractSongInfoFromPageTitle() {
+    const rawTitle = (document.title || '').trim();
+    if (!rawTitle) {
+      return { title: 'Tidak diketahui', artist: 'Tidak diketahui' };
+    }
+
+    const cleanedTitle = rawTitle.replace(/\s*[|•·–—-]\s*YouTube Music\s*$/i, '').trim();
+    const parts = cleanedTitle
+      .split(/\s*[-–—|•·]\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (parts.length >= 2) {
+      return {
+        title: parts[0] || 'Tidak diketahui',
+        artist: this.cleanArtistText(parts.slice(1).join(' - ')) || 'Tidak diketahui'
+      };
+    }
+
+    return {
+      title: cleanedTitle || 'Tidak diketahui',
+      artist: 'Tidak diketahui'
+    };
   }
 
   static cleanArtistText(text) {
@@ -282,6 +416,7 @@ class SongManager {
   }
 
   static async sendToServer(songInfo, duration, isNewSong) {
+    this.updateInFlight = true;
     try {
       const songData = {
         ...songInfo,
@@ -291,7 +426,7 @@ class SongManager {
         url: window.location.href
       };
 
-      const response = await fetch(`${CONFIG.SERVER_URL}/update`, {
+      const response = await fetch(`${getServerUrl()}/update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(songData)
@@ -312,12 +447,18 @@ class SongManager {
       }
     } catch (error) {
       console.error('❌ Failed to send song data:', error);
+    } finally {
+      this.updateInFlight = false;
+      if (this.pendingUpdate) {
+        this.pendingUpdate = false;
+        setTimeout(() => this.update(), 0);
+      }
     }
   }
 
   static async verifyRequestMatch(songInfo) {
     try {
-      const response = await fetch(`${CONFIG.SERVER_URL}/verify-match`, {
+      const response = await fetch(`${getServerUrl()}/verify-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(songInfo)
@@ -344,6 +485,7 @@ class SearchAutoplay {
     this.maxAttempts = 20;
     this.timeout = CONFIG.SEARCH_TIMEOUT;
     this.interval = null;
+    this.timeoutId = null;
     this.songFilterApplied = false;
   }
 
@@ -359,7 +501,7 @@ class SearchAutoplay {
       this.findAndPlay();
     }, 1000);
 
-    setTimeout(() => {
+    this.timeoutId = setTimeout(() => {
       if (this.interval) {
         this.stop();
         this.log('Search autoplay timeout');
@@ -371,6 +513,10 @@ class SearchAutoplay {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
+    }
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
     }
   }
 
@@ -444,9 +590,7 @@ class SearchAutoplay {
 
     const candidates = [];
     for (const row of rows) {
-      const playElement = row.querySelector(
-        'ytmusic-play-button-renderer button, [aria-label*="Play"], #play-button, a.yt-simple-endpoint'
-      );
+      const playElement = this.findPlayButton(row);
       if (!playElement) continue;
 
       const rowText = RequestProcessor.normalizeText(row.innerText || '');
@@ -464,6 +608,32 @@ class SearchAutoplay {
       `Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
     );
     return best.score >= 4 ? best : undefined;
+  }
+
+  findPlayButton(row) {
+    const selectors = [
+      'ytmusic-play-button-renderer button',
+      'ytmusic-play-button-renderer yt-icon-button button',
+      'button[aria-label*="Play"]',
+      'button[aria-label*="Putar"]',
+      'button[title*="Play"]',
+      'button[title*="Putar"]',
+      '[aria-label*="Play"]',
+      '[aria-label*="Putar"]',
+      '#play-button'
+    ];
+
+    for (const selector of selectors) {
+      const candidate = row.querySelector(selector);
+      if (candidate) return candidate;
+    }
+
+    const link = row.querySelector('a.yt-simple-endpoint[href]');
+    if (link && !/\/watch\?/.test(link.getAttribute('href') || '')) {
+      return link;
+    }
+
+    return null;
   }
 
   findFallbackPlayElement() {
@@ -485,9 +655,7 @@ class SearchAutoplay {
         const durationSeconds = this.extractDurationSeconds(rowText);
         if (durationSeconds > 420) continue; // skip lagu panjang
 
-        const playElement = row.querySelector(
-          'ytmusic-play-button-renderer button, [aria-label*="Play"], #play-button, a.yt-simple-endpoint'
-        );
+        const playElement = this.findPlayButton(row);
         if (playElement) return playElement;
       }
     }
@@ -496,14 +664,18 @@ class SearchAutoplay {
 
   extractRowMeta(row, rowText) {
     const titleElement = row.querySelector(
-      '#title, .title, yt-formatted-string.title, a.yt-simple-endpoint[title]'
+      '#title, .title, yt-formatted-string.title, a.yt-simple-endpoint[title], a.yt-simple-endpoint[href]'
     );
     const subtitleElement = row.querySelector(
-      '.secondary-flex-columns, .subtitle, .byline, yt-formatted-string.byline'
+      '.secondary-flex-columns, .subtitle, .byline, yt-formatted-string.byline, yt-formatted-string.secondary-flex-column, .secondary-text'
     );
 
-    const title = RequestProcessor.normalizeText(titleElement?.textContent || '');
-    const subtitle = RequestProcessor.normalizeText(subtitleElement?.textContent || '');
+    const title = RequestProcessor.normalizeText(
+      titleElement?.getAttribute?.('title') || titleElement?.textContent || ''
+    );
+    const subtitle = RequestProcessor.normalizeText(
+      subtitleElement?.getAttribute?.('title') || subtitleElement?.textContent || ''
+    );
 
     return { title, subtitle, text: rowText };
   }
@@ -595,6 +767,7 @@ class SearchAutoplay {
 
   tryAlternativeMethods() {
     this.log('Trying alternative search methods...');
+    this.stop();
 
     const links = document.querySelectorAll('a[href*="/watch"]');
     for (const link of links) {
@@ -643,15 +816,21 @@ class RequestProcessor {
   static lastRequestTime = 0;
   static cooldown = 5000;
 
+  static getRequestSignature(request) {
+    if (!request) return '';
+    return [request.id || '', request.time || '', request.query || ''].join('|');
+  }
+
   static async checkRequests() {
     if (this.isProcessing || Date.now() - this.lastRequestTime < this.cooldown) {
       return;
     }
 
     this.isProcessing = true;
+    state.isProcessingRequest = true;
 
     try {
-      const response = await fetch(`${CONFIG.SERVER_URL}/get-request`);
+      const response = await fetch(`${getServerUrl()}/get-request`);
 
       if (response.status === 423) {
         const data = await response.json();
@@ -673,35 +852,56 @@ class RequestProcessor {
 
       const request = await response.json();
       if (request?.query) {
-        this.processRequest(request);
+        const signature = this.getRequestSignature(request);
+        if (!signature) {
+          return;
+        }
+
+        if (
+          signature === state.pendingRequestSignature ||
+          signature === state.handledRequestSignature
+        ) {
+          this.log(`Skipping duplicate request: ${request.query}`);
+          return;
+        }
+
+        this.processRequest(request, signature);
       }
     } catch (error) {
       console.error('❌ Error checking requests:', error);
     } finally {
       this.isProcessing = false;
+      state.isProcessingRequest = false;
       this.lastRequestTime = Date.now();
     }
   }
 
-  static async processRequest(request) {
+  static async processRequest(request, signature = '') {
     this.log(`Processing request: "${request.query}"`);
 
     state.lastProcessedRequest = request;
     state.isProcessingRequest = true;
+    state.pendingRequestSignature = signature || this.getRequestSignature(request);
+    state.handledRequestSignature = state.pendingRequestSignature;
 
-    DebugPanel.setStatus(`Processing: ${request.query}`);
+    try {
+      DebugPanel.setStatus(`Processing: ${request.query}`);
 
-    const searchTarget = this.extractSearchTarget(request);
-    state.searchTarget = searchTarget;
-    const searchQuery = this.buildSearchQuery(searchTarget);
-    const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
+      const searchTarget = this.extractSearchTarget(request);
+      state.searchTarget = searchTarget;
+      const searchQuery = this.buildSearchQuery(searchTarget);
+      const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
 
-    if (window.location.href === searchUrl) {
-      this.log('Already on search page, starting autoplay');
-      new SearchAutoplay().start();
-    } else {
-      this.log(`Redirecting to: ${searchUrl}`);
-      window.location.href = searchUrl;
+      if (window.location.href === searchUrl) {
+        this.log('Already on search page, starting autoplay');
+        new SearchAutoplay().start();
+      } else {
+        this.log(`Redirecting to: ${searchUrl}`);
+        window.location.href = searchUrl;
+      }
+    } finally {
+      state.isProcessingRequest = false;
+      state.pendingRequestSignature = null;
     }
   }
 
@@ -769,7 +969,7 @@ class RequestProcessor {
 class ServerAPI {
   static async notifySongEnded() {
     try {
-      const response = await fetch(`${CONFIG.SERVER_URL}/song-ended`, {
+      const response = await fetch(`${getServerUrl()}/song-ended`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -791,7 +991,7 @@ class ServerAPI {
 
   static async skipCurrent() {
     try {
-      const response = await fetch(`${CONFIG.SERVER_URL}/skip-current`, {
+      const response = await fetch(`${getServerUrl()}/skip-current`, {
         method: 'POST'
       });
 
@@ -865,6 +1065,19 @@ class DebugPanel {
         </div>
       </div>
 
+      <div style="margin-bottom: 8px;">
+        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">SERVER</div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <input id="debug-server-url" type="text" spellcheck="false" value="${getServerUrl()}" placeholder="https://localhost:4786"
+            style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
+          <div style="display: flex; gap: 6px;">
+            <button id="debug-server-save" style="flex: 1; background: #16a34a; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan</button>
+            <button id="debug-server-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset</button>
+          </div>
+          <button id="debug-server-detect" style="width: 100%; background: #7c3aed; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Auto Detect</button>
+        </div>
+      </div>
+
       <div>
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">AKSI CEPAT</div>
         <div style="display: flex; gap: 6px;">
@@ -882,6 +1095,9 @@ class DebugPanel {
 
         #debug-toggle:hover { background: #444 !important; }
         #debug-refresh:hover { background: #444 !important; }
+        #debug-server-save:hover { background: #15803d !important; }
+        #debug-server-reset:hover { background: #4b5563 !important; }
+        #debug-server-detect:hover { background: #6d28d9 !important; }
         #debug-skip:hover { background: #ffb142 !important; }
         #debug-check:hover { background: #5352ed !important; }
       </style>
@@ -899,6 +1115,50 @@ class DebugPanel {
 
     document.getElementById('debug-refresh').addEventListener('click', () => {
       location.reload();
+    });
+
+    document.getElementById('debug-server-save').addEventListener('click', () => {
+      const input = document.getElementById('debug-server-url');
+      const rawValue = (input?.value || '').trim();
+      if (!/^https?:\/\//i.test(rawValue)) {
+        this.setStatus('URL harus diawali http:// atau https://', true);
+        return;
+      }
+
+      const normalizedUrl = rawValue.replace(/\/+$/, '');
+      localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, normalizedUrl);
+      input.value = normalizedUrl;
+      this.setStatus(`Server URL disimpan: ${normalizedUrl}`);
+    });
+
+    document.getElementById('debug-server-reset').addEventListener('click', () => {
+      localStorage.removeItem(CONFIG.SERVER_URL_STORAGE_KEY);
+      const input = document.getElementById('debug-server-url');
+      if (input) input.value = CONFIG.SERVER_URL;
+      this.setStatus(`Server URL kembali ke default: ${CONFIG.SERVER_URL}`);
+    });
+
+    document.getElementById('debug-server-detect').addEventListener('click', async () => {
+      const button = document.getElementById('debug-server-detect');
+      const input = document.getElementById('debug-server-url');
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Mencari...';
+
+      try {
+        const detectedUrl = await detectServerUrl();
+        if (detectedUrl) {
+          if (input) input.value = detectedUrl;
+          this.setStatus(`Server terdeteksi: ${detectedUrl}`);
+        } else {
+          this.setStatus('Server tidak ditemukan', true);
+        }
+      } catch (error) {
+        this.setStatus('Auto detect gagal', true);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
     });
 
     document.getElementById('debug-skip').addEventListener('click', async () => {

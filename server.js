@@ -22,6 +22,8 @@ const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 
 let adminSession = null;
+let lastUpdateSignature = null;
+let lastUpdateAt = 0;
 
 // Pastikan direktori data ada
 const dataDir = path.join(__dirname, 'data');
@@ -448,6 +450,15 @@ function normalizeOptionalUrl(value) {
   const normalized = normalizeInput(value);
   if (!normalized) return null;
   return normalized.slice(0, 1000);
+}
+
+function buildUpdateSignature(payload) {
+  const title = normalizeSongField(payload?.title, 'Tidak diketahui').toLowerCase();
+  const artist = normalizeSongField(payload?.artist, 'Tidak diketahui').toLowerCase();
+  const duration = normalizeDurationMs(payload?.duration, 180000);
+  const isNewSong = normalizeBoolean(payload?.isNewSong) ? '1' : '0';
+  const url = normalizeOptionalUrl(payload?.url) || '';
+  return [title, artist, duration, isNewSong, url].join('|');
 }
 
 async function getAdminCredential(role = 'admin') {
@@ -1259,6 +1270,21 @@ app.post('/update', async (req, res) => {
     const normalizedTitle = normalizeSongField(title, 'Tidak diketahui');
     const normalizedArtist = normalizeSongField(artist, 'Tidak diketahui');
     const normalizedUrl = normalizeOptionalUrl(url);
+    const updateSignature = buildUpdateSignature(req.body);
+    if (updateSignature === lastUpdateSignature && (now - lastUpdateAt) < 2000) {
+      return res.json({
+        success: true,
+        deduped: true,
+        message: 'Song update ignored because it was already processed',
+        song: state.currentSong,
+        timestamp: state.currentSong.timestamp,
+        lockRemaining: getLockRemainingMs(now)
+      });
+    }
+
+    lastUpdateSignature = updateSignature;
+    lastUpdateAt = now;
+
     const confidence = calculateConfidence({ title: normalizedTitle, artist: normalizedArtist, duration: validDuration });
     const previousSong = { ...state.currentSong };
     
