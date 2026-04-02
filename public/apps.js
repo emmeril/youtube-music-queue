@@ -1,10 +1,10 @@
         function app() {
             return {
                 // State
-                appVersion: '2.4.0',
+                appVersion: '2.3.0',
                 currentSong: {
-                    title: '',
-                    artist: '',
+                    title: 'Tidak ada lagu',
+                    artist: 'Tidak diketahui',
                     duration: 0,
                     timestamp: 0,
                     confidence: 0,
@@ -221,11 +221,11 @@
                         
                         if (statusResult.ok) {
                             const statusData = statusResult.data || {};
-                            this.currentSong = statusData.song;
-                            this.activeRequest = statusData.activeRequest;
+                            this.currentSong = statusData.song || this.currentSong;
+                            this.activeRequest = statusData.activeRequest || null;
                             const lockRemainingMs = Number(statusData.lockRemaining || 0);
                             this.lockRemaining = Math.round(lockRemainingMs / 1000);
-                            this.lockInfo = statusData.lockInfo || {};
+                            this.lockInfo = statusData.lockInfo || this.lockInfo;
                             this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
                             this.stats.totalTime = statusData.stats.totalPlayTime || 0;
                             this.queueLimit = statusData.queueLimit || 100;
@@ -235,7 +235,7 @@
                         
                         if (queueResult.ok) {
                             const queueData = queueResult.data || {};
-                            this.queue = queueData.queue || [];
+                            this.queue = Array.isArray(queueData.queue) ? queueData.queue : [];
                             this.stats.queueLength = queueData.queueLength || 0;
                             this.queueLimit = queueData.queueLimit || 100;
                             this.randomQueueEnabled = Boolean(queueData.randomQueueEnabled);

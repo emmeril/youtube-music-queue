@@ -264,61 +264,18 @@
 <body class="bg-gray-900 text-white min-h-screen">
     <!-- Auto Refresh System -->
     <script>
-        // Service Worker untuk auto-refresh
-        if ('serviceWorker' in navigator) {
-            let refreshing = false;
-            
-            // Cek versi aplikasi setiap 5 menit
-            setInterval(async () => {
-                if (document.hidden) return;
-                try {
-                    const response = await fetch('/version');
-                    const data = await response.json();
-                    const savedVersion = localStorage.getItem('appVersion');
-                    
-                    if (savedVersion && savedVersion !== data.version) {
-                        if (!refreshing) {
-                            refreshing = true;
-                            console.log('🔄 New version detected, refreshing...');
-                            
-                            // Tampilkan notifikasi
-                            const toastEvent = new CustomEvent('show-toast', {
-                                detail: {
-                                    message: 'Aplikasi diperbarui. Memuat ulang...',
-                                    type: 'info'
-                                }
-                            });
-                            document.dispatchEvent(toastEvent);
-                            
-                            setTimeout(() => {
-                                window.location.reload();
-                            }, 2000);
-                        }
-                    }
-                    
-                    // Simpan versi terbaru
-                    localStorage.setItem('appVersion', data.version);
-                    localStorage.setItem('lastVersionCheck', Date.now());
-                    
-                } catch (error) {
-                    console.log('Version check failed:', error);
-                }
-            }, 300000); // Cek setiap 5 menit
-        }
-
-        // Force refresh jika aplikasi terlalu lama terbuka
-        const lastReload = localStorage.getItem('lastReload');
+        const LONG_SESSION_REFRESH_MS = 60 * 60 * 1000;
+        const lastReload = Number(localStorage.getItem('lastReload') || 0);
         const now = Date.now();
-        
-        if (!lastReload || (now - parseInt(lastReload, 10)) > 3600000) { // 1 jam
-            console.log('🔄 App refresh due to long session');
-            localStorage.setItem('lastReload', now);
-            
-            // Clear cache
+
+        if (!lastReload || (now - lastReload) > LONG_SESSION_REFRESH_MS) {
+            console.log('[refresh] Clearing caches for a long-lived session');
+            localStorage.setItem('lastReload', String(now));
+
             if ('caches' in window) {
-                caches.keys().then(names => {
-                    names.forEach(name => caches.delete(name));
-                });
+                caches.keys().then((names) => {
+                    names.forEach((name) => caches.delete(name));
+                }).catch(() => {});
             }
         }
     </script>
@@ -400,7 +357,7 @@
                                 <div class="tooltip-text" x-text="currentSong.title || 'Tidak ada lagu'"></div>
                             </div>
                             <div class="text-base md:text-lg text-gray-300 mb-3 md:mb-4 current-song-title" 
-                                 x-text="currentSong.artist || 'Unknown artist'"></div>
+                                 x-text="currentSong.artist || 'Tidak diketahui'"></div>
                             
                             <div class="flex flex-wrap items-center gap-3 md:gap-4">
                                 <div class="flex items-center gap-1 md:gap-2">
@@ -820,18 +777,18 @@
                             <span x-text="isConnected ? 'Online' : 'Offline'"></span>
                         </span></span>
                     </div>
-                    <div class="hidden md:block text-gray-600">•</div>
+                    <div class="hidden md:block text-gray-600">|</div>
                     <div>YouTube Music Bridge <span x-text="'v' + appVersion"></span></div>
-                    <div class="hidden md:block text-gray-600">•</div>
+                    <div class="hidden md:block text-gray-600">|</div>
                     <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
-                    <div class="hidden md:block text-gray-600">•</div>
+                    <div class="hidden md:block text-gray-600">|</div>
                     <div><span x-text="isAdmin ? (adminRole === 'super' ? 'Super Admin Mode' : 'Admin Mode') : 'User Mode'" 
                               :class="isAdmin ? (adminRole === 'super' ? 'text-red-400' : 'text-blue-400') : ''"></span></div>
                 </div>
                 
                 <div class="flex flex-wrap items-center gap-1 md:gap-2 justify-center">
                     <div class="text-xs text-gray-600">Auto-refresh: <span class="text-green-400">Aktif</span></div>
-                    <div class="text-xs text-gray-600 hidden md:block">•</div>
+                    <div class="text-xs text-gray-600 hidden md:block">|</div>
                     <div class="text-xs text-gray-600">Priority: <span x-text="isAdmin ? 'Tersedia' : 'Admin only'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
                 </div>
             </div>

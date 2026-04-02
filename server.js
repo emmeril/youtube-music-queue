@@ -18,6 +18,9 @@ const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
 const FAIR_RANDOM_POOL_SIZE = 20;
+const DEFAULT_AVG_SONG_DURATION_MINUTES = 3;
+const DEFAULT_UNKNOWN_TITLE = 'Tidak ada lagu';
+const DEFAULT_UNKNOWN_LABEL = 'Tidak diketahui';
 const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 
@@ -164,8 +167,8 @@ function requireSuperAdmin(req, res, next) {
 // ================= STATE MANAGEMENT =================
 let state = {
   currentSong: {
-    title: 'Tidak ada lagu',
-    artist: 'Tidak diketahui',
+    title: DEFAULT_UNKNOWN_TITLE,
+    artist: DEFAULT_UNKNOWN_LABEL,
     duration: 180000,
     timestamp: Date.now(),
     confidence: 0,
@@ -233,8 +236,8 @@ function isStrictPositiveInteger(value) {
 function calculateConfidence(song) {
   let confidence = 50;
   if (song.duration >= 120000 && song.duration <= 300000) confidence += 30;
-  if (song.title && song.title !== 'Tidak diketahui') confidence += 10;
-  if (song.artist && song.artist !== 'Tidak diketahui') confidence += 10;
+  if (song.title && song.title !== DEFAULT_UNKNOWN_LABEL) confidence += 10;
+  if (song.artist && song.artist !== DEFAULT_UNKNOWN_LABEL) confidence += 10;
   return Math.min(confidence, 95);
 }
 
@@ -259,6 +262,15 @@ function stopCurrentPlayback() {
   state.currentSong.isPlaying = false;
 }
 
+function isPlaceholderSong(song) {
+  if (!song || typeof song !== 'object') return true;
+
+  const title = normalizeInput(song.title).toLowerCase();
+  const artist = normalizeInput(song.artist).toLowerCase();
+
+  return title === DEFAULT_UNKNOWN_TITLE.toLowerCase() && artist === DEFAULT_UNKNOWN_LABEL.toLowerCase();
+}
+
 function finalizeActiveRequest(status, extraFields = {}) {
   if (!state.activeRequest) return;
 
@@ -273,7 +285,7 @@ function scheduleAutoUnlock(lockDuration) {
     state.songEndTimeout = setTimeout(() => {
       const now = Date.now();
       if (state.requestLockUntil > 0 && now >= state.requestLockUntil) {
-        console.log(`⏰ Auto-unlock triggered for song completion`);
+        console.log(`[LOCK] Auto-unlock triggered for song completion`);
         resetRequestLockState();
         stopCurrentPlayback();
         if (state.activeRequest) {
@@ -287,9 +299,10 @@ function scheduleAutoUnlock(lockDuration) {
   }
 }
 
-function calculateWaitTime(position) {
-  const avgSongDuration = 3; // menit
-  return position * avgSongDuration;
+function calculateWaitTime(position, currentRemainingSeconds = 0) {
+  if (position <= 0) return 0;
+  const currentRemainingMinutes = Math.max(0, currentRemainingSeconds) / 60;
+  return Math.round(currentRemainingMinutes + (position * DEFAULT_AVG_SONG_DURATION_MINUTES));
 }
 
 function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
@@ -453,8 +466,8 @@ function normalizeOptionalUrl(value) {
 }
 
 function buildUpdateSignature(payload) {
-  const title = normalizeSongField(payload?.title, 'Tidak diketahui').toLowerCase();
-  const artist = normalizeSongField(payload?.artist, 'Tidak diketahui').toLowerCase();
+  const title = normalizeSongField(payload?.title, DEFAULT_UNKNOWN_LABEL).toLowerCase();
+  const artist = normalizeSongField(payload?.artist, DEFAULT_UNKNOWN_LABEL).toLowerCase();
   const duration = normalizeDurationMs(payload?.duration, 180000);
   const isNewSong = normalizeBoolean(payload?.isNewSong) ? '1' : '0';
   const url = normalizeOptionalUrl(payload?.url) || '';
@@ -488,7 +501,7 @@ async function ensureDefaultAdminCredentials() {
   for (const credential of credentialsToSeed) {
     if (await hasAdminCredential(credential.role)) continue;
     await upsertAdminCredential(credential.role, credential.password);
-    console.log(`🔐 Default ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential inserted into database`);
+    console.log(`[AUTH] Default ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential inserted into database`);
   }
 }
 
@@ -653,7 +666,7 @@ function sendError(res, status, code, message, meta = null) {
 }
 
 function logQueueCount() {
-  console.log(`📊 Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
+  console.log(`[QUEUE] Total queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
 }
 
 function validateSongRequest(query) {
@@ -787,12 +800,14 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   
   await saveRequests();
   
+  const currentRemainingSeconds = Math.ceil(getLockRemainingMs() / 1000);
+
   return {
     success: true,
     request: newRequest,
     warnings: [],
     queuePosition,
-    estimatedWait: queuePosition === 1 ? 0 : calculateWaitTime(queuePosition),
+    estimatedWait: calculateWaitTime(queuePosition, currentRemainingSeconds),
     queueLimit: QUEUE_LIMIT,
     remainingSlots: QUEUE_LIMIT - state.requestQueue.length
   };
@@ -853,8 +868,8 @@ async function loadData() {
     lastPersistedHistorySignature = getHistorySignature();
     lastPersistedAppStateSignature = getAppStateSignature();
 
-    console.log(`📂 Loaded ${state.requestQueue.length} requests from database`);
-    console.log(`📂 Loaded ${state.history.length} history items`);
+    console.log(`[DB] Loaded ${state.requestQueue.length} requests from database`);
+    console.log(`[DB] Loaded ${state.history.length} history items`);
   } catch (error) {
     console.error('Error loading data from database:', error);
     state.requestQueue = [];
@@ -1120,6 +1135,10 @@ async function saveAppState() {
 }
 
 async function addToHistory(song, request = null) {
+  if (isPlaceholderSong(song)) {
+    return;
+  }
+
   const historyItem = {
     id: generateId(),
     song: { ...song },
@@ -1168,8 +1187,7 @@ app.post('/admin/login', async (req, res) => {
       expires: Date.now() + SESSION_DURATION,
       createdAt: Date.now()
     };
-
-    console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
+    console.log(`[AUTH] ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
     res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: adminSession.expires });
   } catch (error) {
     return sendInternalError(res, req.path, error);
@@ -1178,7 +1196,7 @@ app.post('/admin/login', async (req, res) => {
 
 app.post('/admin/logout', requireAdmin, (req, res) => {
   adminSession = null;
-  console.log(`🔐 Admin logged out`);
+  console.log('[AUTH] Admin logged out');
   res.json({ success: true, message: 'Logout berhasil' });
 });
 
@@ -1220,7 +1238,7 @@ app.post('/admin/bootstrap-super-admin', async (req, res) => {
     }
 
     await upsertAdminCredential('super', password);
-    console.log('🔐 Initial Super Admin password stored in database');
+    console.log('[AUTH] Initial Super Admin password stored in database');
 
     res.json({
       success: true,
@@ -1250,8 +1268,7 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
     }
 
     await upsertAdminCredential(role, password);
-    console.log(`🔐 ${role === 'super' ? 'Super Admin' : 'Admin'} password updated in database`);
-
+    console.log(`[AUTH] ${role === 'super' ? 'Super Admin' : 'Admin'} password updated in database`);
     res.json({
       success: true,
       message: `Password ${role} berhasil disimpan ke database`
@@ -1267,8 +1284,8 @@ app.post('/update', async (req, res) => {
     const now = Date.now();
     const validDuration = normalizeDurationMs(duration, 180000);
     const isNewSongFlag = normalizeBoolean(isNewSong);
-    const normalizedTitle = normalizeSongField(title, 'Tidak diketahui');
-    const normalizedArtist = normalizeSongField(artist, 'Tidak diketahui');
+    const normalizedTitle = normalizeSongField(title, DEFAULT_UNKNOWN_LABEL);
+    const normalizedArtist = normalizeSongField(artist, DEFAULT_UNKNOWN_LABEL);
     const normalizedUrl = normalizeOptionalUrl(url);
     const updateSignature = buildUpdateSignature(req.body);
     if (updateSignature === lastUpdateSignature && (now - lastUpdateAt) < 2000) {
@@ -1298,7 +1315,7 @@ app.post('/update', async (req, res) => {
       url: normalizedUrl
     };
     
-    console.log(`📊 Song updated: ${normalizedTitle} - ${normalizedArtist} (${formatDuration(validDuration)}, ${confidence}%)`);
+    console.log(`[SONG] Updated: ${normalizedTitle} - ${normalizedArtist} (${formatDuration(validDuration)}, ${confidence}%)`);
     
     if (state.activeRequest && state.requestLockUntil > 0) {
       if (isNewSongFlag || Math.abs(validDuration - (previousSong.duration || 0)) > 5000) {
@@ -1306,7 +1323,7 @@ app.post('/update', async (req, res) => {
         state.requestLockUntil = now + newLockDuration;
         state.originalLockDuration = newLockDuration;
         scheduleAutoUnlock(newLockDuration);
-        console.log(`🔒 Lock updated to ${Math.round(newLockDuration/1000)}s for new song`);
+        console.log(`[LOCK] Updated to ${Math.round(newLockDuration / 1000)}s for new song`);
       }
     }
     
@@ -1393,11 +1410,9 @@ app.get('/get-request', async (req, res) => {
     scheduleAutoUnlock(lockDuration);
     state.stats.totalRequests++;
     await saveRequests();
-    
-    console.log(`🎵 Next request: "${nextRequest.query}"`);
-    console.log(`🎵 Parsed as: Title="${parsedQuery.title || nextRequest.query}", Artist="${parsedQuery.artist || DEFAULT_UNKNOWN_ARTIST}"`);
-    console.log(`🔒 Lock duration: ${Math.round(lockDuration/1000)}s`);
-    
+    console.log(`[QUEUE] Next request: "${nextRequest.query}"`);
+    console.log(`[QUEUE] Parsed as: Title="${parsedQuery.title || nextRequest.query}", Artist="${parsedQuery.artist || DEFAULT_UNKNOWN_ARTIST}"`);
+    console.log(`[LOCK] Duration: ${Math.round(lockDuration / 1000)}s`);
     res.json({
       query: nextRequest.query,
       id: nextRequest.id,
@@ -1435,8 +1450,7 @@ app.post('/request-song', async (req, res) => {
     if (!result.success) {
       return sendQueueRequestFailure(res, result);
     }
-    
-    console.log(`📝 Request added: "${query}" → "${result.request.query}"`);
+    console.log(`[QUEUE] Request added: "${query}" -> "${result.request.query}"`);
     logQueueCount();
     
     res.json({
@@ -1488,7 +1502,7 @@ app.post('/admin/move-request', requireAdmin, async (req, res) => {
     state.requestQueue.splice(newPosition - 1, 0, requestToMove);
     await saveRequests();
     
-    console.log(`🔄 Admin moved request "${requestToMove.query}" from position ${currentIndex + 1} to ${newPosition}`);
+    console.log(`[QUEUE] Admin moved request "${requestToMove.query}" from position ${currentIndex + 1} to ${newPosition}`);
     res.json({
       success: true,
       message: `Request berhasil dipindahkan ke posisi ${newPosition}`,
@@ -1531,7 +1545,7 @@ app.post('/admin/request-priority/:id', requireAdmin, async (req, res) => {
 
     await saveRequests();
 
-    console.log(`👑 Admin promoted request "${requestToPromote.query}" to priority`);
+    console.log(`[QUEUE] Admin promoted request "${requestToPromote.query}" to priority`);
     res.json({
       success: true,
       message: 'Request berhasil dijadikan priority',
@@ -1549,8 +1563,8 @@ app.get('/requests', (req, res) => {
   const requestsWithWait = state.requestQueue.map((req, index) => ({
     ...req,
     position: index + 1,
-    estimatedWait: calculateWaitTime(index + 1),
-    estimatedWaitFormatted: formatWaitTime(calculateWaitTime(index + 1) * 60)
+    estimatedWait: calculateWaitTime(index + 1, remainingSeconds),
+    estimatedWaitFormatted: formatWaitTime(calculateWaitTime(index + 1, remainingSeconds) * 60)
   }));
   res.json({
     activeRequest: state.activeRequest,
@@ -1584,8 +1598,7 @@ app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
 app.post('/song-ended', async (req, res) => {
   try {
     const now = Date.now();
-    console.log(`⏭️ Song ended notification received`);
-    
+    console.log('[PLAYBACK] Song ended notification received');
     clearSongEndTimeout();
     
     resetRequestLockState();
@@ -1639,15 +1652,14 @@ app.post('/verify-match', (req, res) => {
   };
   
   if (isMatch) {
-    console.log(`✅ Song match confirmed: "${title}" matches request "${requestQuery}"`);
+    console.log(`[MATCH] Song confirmed: "${title}" matches request "${requestQuery}"`);
   }
   res.json(matchData);
 });
 
 app.post('/skip-current', requireSuperAdmin, async (req, res) => {
   try {
-    console.log('⏭️ Skip current request requested');
-    
+    console.log('[PLAYBACK] Skip current request requested');
     clearSongEndTimeout();
     
     resetRequestLockState();
@@ -1668,8 +1680,7 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
 
 app.post('/force-next', requireSuperAdmin, async (req, res) => {
   try {
-    console.log('⚡ Force next requested');
-    
+    console.log('[PLAYBACK] Force next requested');
     clearSongEndTimeout();
     
     resetRequestLockState();
@@ -1696,11 +1707,11 @@ app.delete('/remove-request/:id', requireSuperAdmin, async (req, res) => {
       resetRequestLockState();
       stopCurrentPlayback();
       finalizeActiveRequest('removed', { removedAt: Date.now() });
-      console.log(`⚠️ Active request removed: "${removed.query}"`);
+      console.log(`[QUEUE] Active request removed: "${removed.query}"`);
     }
     
     await saveRequests();
-    console.log(`🗑️ Request removed: "${removed.query}"`);
+    console.log(`[QUEUE] Request removed: "${removed.query}"`);
     res.json({ 
       success: true, 
       message: 'Request berhasil dihapus', 
@@ -1727,7 +1738,7 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
     clearSongEndTimeout();
     
     await saveRequests();
-    console.log(`🗑️ Cleared ${previousCount} requests`);
+    console.log(`[QUEUE] Cleared ${previousCount} requests`);
     res.json({ 
       success: true, 
       message: 'Semua request telah dihapus', 
@@ -1746,9 +1757,8 @@ app.get('/queue-info', (req, res) => {
   const queueMeta = getQueueMeta();
   const remainingSeconds = isLocked ? Math.ceil(lockRemaining / 1000) : 0;
   
-  let totalQueueMinutes = 0;
+  let totalQueueMinutes = state.requestQueue.length * DEFAULT_AVG_SONG_DURATION_MINUTES;
   if (isLocked) totalQueueMinutes += remainingSeconds / 60;
-  state.requestQueue.forEach(() => totalQueueMinutes += (state.currentSong.duration / 60000));
   
   res.json({
     isLocked,
@@ -1816,8 +1826,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
     if (!result.success) {
       return sendQueueRequestFailure(res, result);
     }
-    
-    console.log(`📝 Priority request added (first position): "${query}" → "${result.request.query}"`);
+    console.log(`[QUEUE] Priority request added (first position): "${query}" -> "${result.request.query}"`);
     logQueueCount();
     
     res.json({
@@ -1826,7 +1835,7 @@ app.post('/admin/request-first', requireAdmin, async (req, res) => {
       request: result.request,
       warnings: result.warnings || [],
       queuePosition: 1,
-      estimatedWait: 0,
+      estimatedWait: result.estimatedWait,
       queueLimit: result.queueLimit,
       remainingSlots: result.remainingSlots
     });
@@ -1871,7 +1880,7 @@ setInterval(async () => {
   let changed = false;
   
   if (now > state.requestLockUntil && state.requestLockUntil > 0) {
-    console.log(`🔄 Auto-unlock: Lock expired`);
+    console.log('[LOCK] Auto-unlock: lock expired');
     resetRequestLockState();
     stopCurrentPlayback();
     if (state.activeRequest) {
@@ -1883,7 +1892,7 @@ setInterval(async () => {
   }
   
   if (state.currentSong.isPlaying && now - state.currentSong.timestamp > 60000) {
-    console.log('🔄 Auto-reset: No song update for 1 minutes');
+    console.log('[SONG] Auto-reset: No song update for 1 minute');
     stopCurrentPlayback();
     changed = true;
   }
@@ -1900,7 +1909,7 @@ setInterval(async () => {
 // ================= AUTO-CLEANUP ADMIN SESSION =================
 setInterval(() => {
   if (adminSession && Date.now() > adminSession.expires) {
-    console.log('🔄 Admin session expired, cleaning up');
+    console.log('[AUTH] Admin session expired, cleaning up');
     adminSession = null;
   }
 }, 60000);
@@ -1915,20 +1924,19 @@ async function initialize() {
   await loadData();
   app.listen(PORT, () => {
     console.log("=".repeat(50));
-    console.log("✅ YouTube Music Bridge Server with Multi-Level Admin (Sequelize)");
-    console.log(`📍 Running at: http://localhost:${PORT}`);
-    console.log(`📊 Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
-    console.log(`🎵 Current song: ${state.currentSong.title}`);
-    console.log(`👑 Super Admin: Full access`);
-    console.log(`👨‍💼 Admin: Can add priority and move only (no delete)`);
-    console.log(`⚡ Queue limit: ${QUEUE_LIMIT} songs`);
-    console.log(`🔄 Auto-refresh: Enabled`);
-    console.log(`🏷️  Auto "official" tag: Enabled`);
+    console.log('=== YouTube Music Bridge Server with Multi-Level Admin (Sequelize) ===');
+    console.log(`[START] Running at: http://localhost:${PORT}`);
+    console.log(`[START] Current queue: ${state.requestQueue.length}/${QUEUE_LIMIT} requests`);
+    console.log(`[START] Current song: ${state.currentSong.title}`);
+    console.log('[START] Super Admin: Full access');
+    console.log('[START] Admin: Can add priority and move only (no delete)');
+    console.log(`[START] Queue limit: ${QUEUE_LIMIT} songs`);
+    console.log('[START] Auto-refresh: Enabled');
+    console.log('[START] Auto "official" tag: Enabled');
     console.log("=".repeat(50));
-    
     if (state.requestLockUntil > 0) {
       const remaining = Math.ceil((state.requestLockUntil - Date.now()) / 1000);
-      console.log(`⏰ Current lock: ${formatWaitTime(remaining)} remaining`);
+      console.log(`[LOCK] Current lock: ${formatWaitTime(remaining)} remaining`);
     }
   });
 }
@@ -1940,17 +1948,18 @@ initialize().catch(err => {
 
 // Handle shutdown gracefully
 process.on('SIGINT', async () => {
-  console.log('\n🛑 Shutting down server...');
-  
+  console.log('\n[SHUTDOWN] Shutting down server...');
   clearSongEndTimeout();
   
   try {
     await saveRequests();
     await saveHistory();
-    console.log('✅ Data saved. Goodbye!');
+    console.log('[SHUTDOWN] Data saved. Goodbye!');
   } catch (err) {
     console.error('Error saving data on shutdown:', err);
   } finally {
     process.exit(0);
   }
 });
+
+
