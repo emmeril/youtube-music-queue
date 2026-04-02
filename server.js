@@ -24,7 +24,7 @@ const DEFAULT_UNKNOWN_LABEL = 'Tidak diketahui';
 const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 
-let adminSession = null;
+const adminSessions = new Map();
 let lastUpdateSignature = null;
 let lastUpdateAt = 0;
 
@@ -91,27 +91,38 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ================= MIDDLEWARE ADMIN (dengan sliding expiration) =================
 function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
-  if (!sessionToken || !adminSession || adminSession.token !== sessionToken) {
+  if (!sessionToken) {
     return { ok: false, reason: 'unauthorized' };
   }
 
-  if (Date.now() > adminSession.expires) {
-    adminSession = null;
+  const session = adminSessions.get(sessionToken);
+  if (!session) {
+    return { ok: false, reason: 'unauthorized' };
+  }
+
+  if (Date.now() > session.expires) {
+    adminSessions.delete(sessionToken);
     return { ok: false, reason: 'expired' };
   }
 
-  const remaining = adminSession.expires - Date.now();
+  const remaining = session.expires - Date.now();
   if (remaining < SESSION_REFRESH_THRESHOLD) {
-    adminSession.expires = Date.now() + SESSION_DURATION;
-    console.log(`[SESSION] ${refreshLabel} session extended, new expiry: ${new Date(adminSession.expires).toLocaleString()}`);
+    session.expires = Date.now() + SESSION_DURATION;
+    console.log(`[SESSION] ${refreshLabel} session extended, new expiry: ${new Date(session.expires).toLocaleString()}`);
   }
 
-  return { ok: true, session: adminSession };
+  return { ok: true, session };
 }
 
 function isAdminSessionTokenValid(sessionToken) {
-  if (!sessionToken || !adminSession || adminSession.token !== sessionToken) return false;
-  return Date.now() <= adminSession.expires;
+  if (!sessionToken) return false;
+  const session = adminSessions.get(sessionToken);
+  if (!session) return false;
+  if (Date.now() > session.expires) {
+    adminSessions.delete(sessionToken);
+    return false;
+  }
+  return true;
 }
 
 function sendAdminDenied(res) {
@@ -1200,21 +1211,25 @@ app.post('/admin/login', async (req, res) => {
     else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
 
     const token = generateId();
-    adminSession = {
+    const session = {
       token,
       role,
       expires: Date.now() + SESSION_DURATION,
       createdAt: Date.now()
     };
+    adminSessions.set(token, session);
     console.log(`[AUTH] ${role === 'super' ? 'Super Admin' : 'Admin'} login successful`);
-    res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: adminSession.expires });
+    res.json({ success: true, token, role, expiresIn: SESSION_DURATION, expiresAt: session.expires });
   } catch (error) {
     return sendInternalError(res, req.path, error);
   }
 });
 
 app.post('/admin/logout', requireAdmin, (req, res) => {
-  adminSession = null;
+  const sessionToken = req.headers['x-admin-token'];
+  if (sessionToken) {
+    adminSessions.delete(sessionToken);
+  }
   console.log('[AUTH] Admin logged out');
   res.json({ success: true, message: 'Logout berhasil' });
 });
@@ -1871,7 +1886,7 @@ app.get('/version', (req, res) => {
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
-    activeUsers: adminSession ? 1 : 0
+    activeUsers: adminSessions.size
   });
 });
 
@@ -1927,9 +1942,18 @@ setInterval(async () => {
 
 // ================= AUTO-CLEANUP ADMIN SESSION =================
 setInterval(() => {
-  if (adminSession && Date.now() > adminSession.expires) {
-    console.log('[AUTH] Admin session expired, cleaning up');
-    adminSession = null;
+  const now = Date.now();
+  let expiredCount = 0;
+
+  for (const [token, session] of adminSessions.entries()) {
+    if (now > session.expires) {
+      adminSessions.delete(token);
+      expiredCount++;
+    }
+  }
+
+  if (expiredCount > 0) {
+    console.log(`[AUTH] Cleaned up ${expiredCount} expired admin session(s)`);
   }
 }, 60000);
 
