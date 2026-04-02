@@ -2,7 +2,6 @@
 const CONFIG = {
   SERVER_URL: 'https://music.monse.co.id',
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
-  BRIDGE_TOKEN_STORAGE_KEY: 'ytmBridgeInternalToken',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
   SEARCH_TIMEOUT: 15000,
@@ -27,25 +26,6 @@ function normalizeServerUrl(value) {
   const trimmed = value.trim();
   if (!/^https?:\/\//i.test(trimmed)) return '';
   return trimmed.replace(/\/+$/, '');
-}
-
-function getBridgeToken() {
-  try {
-    const value = window.localStorage.getItem(CONFIG.BRIDGE_TOKEN_STORAGE_KEY);
-    return typeof value === 'string' ? value.trim() : '';
-  } catch (error) {
-    return '';
-  }
-}
-
-function getBridgeHeaders(includeJson = false) {
-  const headers = {};
-  if (includeJson) headers['Content-Type'] = 'application/json';
-  const bridgeToken = getBridgeToken();
-  if (bridgeToken) {
-    headers['x-bridge-token'] = bridgeToken;
-  }
-  return headers;
 }
 
 async function probeServerUrl(url, timeoutMs = 1500) {
@@ -448,7 +428,7 @@ class SongManager {
 
       const response = await fetch(`${getServerUrl()}/update`, {
         method: 'POST',
-        headers: getBridgeHeaders(true),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(songData)
       });
 
@@ -480,7 +460,7 @@ class SongManager {
     try {
       const response = await fetch(`${getServerUrl()}/verify-match`, {
         method: 'POST',
-        headers: getBridgeHeaders(true),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(songInfo)
       });
 
@@ -850,9 +830,7 @@ class RequestProcessor {
     state.isProcessingRequest = true;
 
     try {
-      const response = await fetch(`${getServerUrl()}/get-request`, {
-        headers: getBridgeHeaders()
-      });
+      const response = await fetch(`${getServerUrl()}/get-request`);
 
       if (response.status === 423) {
         const data = await response.json();
@@ -993,7 +971,7 @@ class ServerAPI {
     try {
       const response = await fetch(`${getServerUrl()}/song-ended`, {
         method: 'POST',
-        headers: getBridgeHeaders(true),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           timestamp: Date.now(),
           url: window.location.href
