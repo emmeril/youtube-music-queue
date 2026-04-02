@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
@@ -12,8 +13,12 @@ const APP_VERSION = '2.3.0';
 // Konstanta
 const QUEUE_LIMIT = 100;
 const MAX_REQUESTS_PER_ARTIST = 3;
-const DEFAULT_ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || 'Monse@2026';
-const DEFAULT_SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Kucing@123';
+const DEFAULT_ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || null;
+const DEFAULT_SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || null;
+const INTERNAL_API_TOKEN = typeof process.env.INTERNAL_API_TOKEN === 'string'
+  ? process.env.INTERNAL_API_TOKEN.trim()
+  : '';
+const PASSWORD_HASH_PREFIX = 'scrypt';
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
@@ -134,6 +139,41 @@ function sendAdminExpired(res) {
   );
 }
 
+function isLoopbackAddress(ipAddress = '') {
+  const normalizedIp = String(ipAddress || '').trim();
+  return normalizedIp === '127.0.0.1'
+    || normalizedIp === '::1'
+    || normalizedIp === '::ffff:127.0.0.1'
+    || normalizedIp === 'localhost';
+}
+
+function sendBridgeDenied(res) {
+  return sendError(
+    res,
+    403,
+    'BRIDGE_CLIENT_REQUIRED',
+    INTERNAL_API_TOKEN
+      ? 'Akses ditolak. Endpoint bridge memerlukan token internal yang valid.'
+      : 'Akses ditolak. Endpoint bridge tanpa token hanya menerima koneksi lokal.'
+  );
+}
+
+function requireBridgeClient(req, res, next) {
+  if (INTERNAL_API_TOKEN) {
+    const providedToken = normalizeInput(req.headers['x-bridge-token']);
+    if (!timingSafeEqualString(providedToken, INTERNAL_API_TOKEN)) {
+      return sendBridgeDenied(res);
+    }
+    return next();
+  }
+
+  if (!isLoopbackAddress(req.ip) && !isLoopbackAddress(req.socket?.remoteAddress)) {
+    return sendBridgeDenied(res);
+  }
+
+  next();
+}
+
 function requireAdmin(req, res, next) {
   const validation = validateAdminSession(req.headers['x-admin-token'], 'Admin');
   if (!validation.ok) {
@@ -219,6 +259,49 @@ function isBlank(value) {
 
 function generateId() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+function timingSafeEqualString(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false;
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function isHashedPassword(value) {
+  return typeof value === 'string' && value.startsWith(`${PASSWORD_HASH_PREFIX}$`);
+}
+
+function hashPassword(password) {
+  const normalizedPassword = normalizeInput(password);
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(normalizedPassword, salt, 64).toString('hex');
+  return `${PASSWORD_HASH_PREFIX}$${salt}$${derivedKey}`;
+}
+
+async function verifyCredentialPassword(credential, password) {
+  const storedPassword = normalizeInput(credential?.password);
+  if (isBlank(storedPassword)) {
+    return { ok: false, needsUpgrade: false };
+  }
+
+  if (isHashedPassword(storedPassword)) {
+    const [, salt, expectedKey] = storedPassword.split('$');
+    if (!salt || !expectedKey) {
+      return { ok: false, needsUpgrade: false };
+    }
+    const derivedKey = crypto.scryptSync(normalizeInput(password), salt, 64).toString('hex');
+    return {
+      ok: timingSafeEqualString(derivedKey, expectedKey),
+      needsUpgrade: false
+    };
+  }
+
+  return {
+    ok: timingSafeEqualString(storedPassword, normalizeInput(password)),
+    needsUpgrade: true
+  };
 }
 
 function parseSongQuery(query) {
@@ -487,7 +570,7 @@ async function upsertAdminCredential(role, password) {
   const normalizedPassword = normalizeInput(password);
   return AdminCredential.upsert({
     role,
-    password: normalizedPassword,
+    password: hashPassword(normalizedPassword),
     updatedAtMs: Date.now()
   });
 }
@@ -499,6 +582,7 @@ async function ensureDefaultAdminCredentials() {
   ];
 
   for (const credential of credentialsToSeed) {
+    if (isBlank(credential.password)) continue;
     if (await hasAdminCredential(credential.role)) continue;
     await upsertAdminCredential(credential.role, credential.password);
     console.log(`[AUTH] Default ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential inserted into database`);
@@ -1089,6 +1173,7 @@ async function saveRequests() {
   } catch (error) {
     persistenceMetrics.requests.errors++;
     console.error('Error saving requests:', error);
+    throw error;
   }
 }
 
@@ -1110,6 +1195,7 @@ async function saveHistory() {
   } catch (error) {
     persistenceMetrics.history.errors++;
     console.error('Error saving history:', error);
+    throw error;
   }
 }
 
@@ -1131,6 +1217,7 @@ async function saveAppState() {
   } catch (error) {
     persistenceMetrics.appState.errors++;
     console.error('Error saving app state:', error);
+    throw error;
   }
 }
 
@@ -1175,10 +1262,27 @@ app.post('/admin/login', async (req, res) => {
       );
     }
 
+    const superVerification = hasSuperAdminCredential
+      ? await verifyCredentialPassword(superCredential, password)
+      : { ok: false, needsUpgrade: false };
+    const adminVerification = hasAdminCredential
+      ? await verifyCredentialPassword(adminCredential, password)
+      : { ok: false, needsUpgrade: false };
+
     let role = null;
-    if (hasSuperAdminCredential && password === superCredential.password) role = 'super';
-    else if (hasAdminCredential && password === adminCredential.password) role = 'admin';
-    else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
+    if (superVerification.ok) {
+      role = 'super';
+      if (superVerification.needsUpgrade) {
+        await upsertAdminCredential('super', password);
+      }
+    } else if (adminVerification.ok) {
+      role = 'admin';
+      if (adminVerification.needsUpgrade) {
+        await upsertAdminCredential('admin', password);
+      }
+    } else {
+      return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
+    }
 
     const token = generateId();
     adminSession = {
@@ -1278,7 +1382,7 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.post('/update', async (req, res) => {
+app.post('/update', requireBridgeClient, async (req, res) => {
   try {
     const { title, artist, duration, isNewSong, url } = req.body;
     const now = Date.now();
@@ -1369,7 +1473,7 @@ app.get('/status', (req, res) => {
   });
 });
 
-app.get('/get-request', async (req, res) => {
+app.get('/get-request', requireBridgeClient, async (req, res) => {
   try {
     const now = Date.now();
     if (now < state.requestLockUntil) {
@@ -1559,6 +1663,7 @@ app.post('/admin/request-priority/:id', requireAdmin, async (req, res) => {
 
 app.get('/requests', (req, res) => {
   const { isLocked, lockRemaining } = getLockState();
+  const remainingSeconds = isLocked ? Math.ceil(lockRemaining / 1000) : 0;
   const queueMeta = getQueueMeta();
   const requestsWithWait = state.requestQueue.map((req, index) => ({
     ...req,
@@ -1595,7 +1700,7 @@ app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.post('/song-ended', async (req, res) => {
+app.post('/song-ended', requireBridgeClient, async (req, res) => {
   try {
     const now = Date.now();
     console.log('[PLAYBACK] Song ended notification received');
@@ -1620,7 +1725,7 @@ app.post('/song-ended', async (req, res) => {
   }
 });
 
-app.post('/verify-match', (req, res) => {
+app.post('/verify-match', requireBridgeClient, (req, res) => {
   const { title, artist } = req.body;
   if (!state.activeRequest) {
     return res.json({ isMatch: false, reason: 'No active request' });
@@ -1933,6 +2038,11 @@ async function initialize() {
     console.log(`[START] Queue limit: ${QUEUE_LIMIT} songs`);
     console.log('[START] Auto-refresh: Enabled');
     console.log('[START] Auto "official" tag: Enabled');
+    if (INTERNAL_API_TOKEN) {
+      console.log('[START] Bridge endpoints: protected by x-bridge-token');
+    } else {
+      console.log('[START] Bridge endpoints: loopback-only because INTERNAL_API_TOKEN is not configured');
+    }
     console.log("=".repeat(50));
     if (state.requestLockUntil > 0) {
       const remaining = Math.ceil((state.requestLockUntil - Date.now()) / 1000);
