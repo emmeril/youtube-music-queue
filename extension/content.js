@@ -717,7 +717,7 @@ class SearchAutoplay {
       const durationSeconds = this.extractDurationSeconds(rowText);
       const rowMeta = this.extractRowMeta(row, rowText);
       const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
-      if (!this.isCandidateAllowed(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
+      if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
         continue;
       }
 
@@ -775,7 +775,7 @@ class SearchAutoplay {
         const durationSeconds = this.extractDurationSeconds(rowText);
         const rowMeta = this.extractRowMeta(row, rowText);
         const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
-        if (!this.isCandidateAllowed(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
+        if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
           continue;
         }
 
@@ -816,6 +816,37 @@ class SearchAutoplay {
     return this.isDurationAllowed(durationSeconds);
   }
 
+  isCandidateAllowedForSearch(text, durationSeconds) {
+    if (!text) return false;
+
+    const blockedTerms = [
+      'playlist',
+      'album',
+      'full album',
+      'podcast',
+      'episode',
+      'mix',
+      'live',
+      'karaoke',
+      'dj set',
+      'radio',
+      'compilation',
+      'nonstop',
+      'slowed',
+      'reverb'
+    ];
+
+    if (blockedTerms.some((term) => text.includes(term))) {
+      return false;
+    }
+
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      return true;
+    }
+
+    return this.isDurationAllowed(durationSeconds);
+  }
+
   isDurationAllowed(durationSeconds) {
     const settings = getSearchDurationSettings();
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
@@ -851,14 +882,18 @@ class SearchAutoplay {
   }
 
   scoreRow(meta, durationSeconds, target) {
-    if (!this.isCandidateAllowed(meta.text, durationSeconds)) {
+    if (!this.isCandidateAllowedForSearch(meta.text, durationSeconds)) {
       return -100;
     }
 
     let score = 0;
     const text = meta.text;
 
-    score += 4;
+    if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+      score += 4;
+    } else {
+      score -= 1;
+    }
 
     const positiveTerms = ['song', 'official', 'audio', 'video', 'single'];
     const negativeTerms = [
