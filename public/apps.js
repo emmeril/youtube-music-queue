@@ -254,79 +254,6 @@
                     if (typeof value !== 'string') return '';
                     return value.trim().replace(/\s+/g, ' ').replace(/[<>{}]/g, '');
                 },
-
-                looksLikeArtistName(value) {
-                    const cleaned = this.sanitizeInput(value);
-                    if (!cleaned || cleaned.length > 60) return false;
-                    if (/[0-9()[\]{}]/.test(cleaned)) return false;
-                    const words = cleaned.split(' ').filter(Boolean);
-                    if (words.length === 0 || words.length > 5) return false;
-                    return words.every(word => /^[a-zA-Z][a-zA-Z'.-]*$/.test(word));
-                },
-
-                looksLikeSongTitle(value) {
-                    const cleaned = this.sanitizeInput(value);
-                    if (!cleaned) return false;
-                    if (/[0-9()[\]{}]/.test(cleaned)) return true;
-                    if (/-/.test(cleaned)) return true;
-                    if (/\b(feat\.?|ft\.?|official|lyrics?|lirik|remix|cover|live|version|ost|soundtrack|video)\b/i.test(cleaned)) return true;
-                    const words = cleaned.split(' ').filter(Boolean);
-                    return words.length >= 3;
-                },
-
-                hasStrongSongTitleSignals(value) {
-                    const cleaned = this.sanitizeInput(value);
-                    if (!cleaned) return false;
-
-                    if (/[0-9()[\]{}]/.test(cleaned)) return true;
-                    if (/-/.test(cleaned)) return true;
-                    if (/\b(feat\.?|ft\.?|official|lyrics?|lirik|remix|cover|live|version|ost|soundtrack|video)\b/i.test(cleaned)) return true;
-                    if (/\b(a|an|the|and|or|but|of|in|on|at|to|for|with|without|from|aku|kamu|dia|kami|kita|mereka|yang|dan|dengan|untuk|pada|dalam|my|your|you|me|we|they|our|their|love)\b/i.test(cleaned)) return true;
-
-                    const words = cleaned.split(' ').filter(Boolean);
-                    return words.length >= 4;
-                },
-
-                looksLikePersonFullName(value) {
-                    const cleaned = this.sanitizeInput(value);
-                    if (!cleaned) return false;
-                    if (/[0-9()[\]{}]/.test(cleaned)) return false;
-                    const words = cleaned.split(' ').filter(Boolean);
-                    if (words.length < 2 || words.length > 4) return false;
-                    const nonNameWords = new Set([
-                        'dan', 'yang', 'di', 'ke', 'untuk', 'dengan',
-                        'and', 'the', 'of', 'in', 'on', 'to', 'for'
-                    ]);
-                    return words.every((word) => {
-                        const lower = word.toLowerCase();
-                        if (nonNameWords.has(lower)) return false;
-                        return /^[a-zA-Z][a-zA-Z'.-]*$/.test(word);
-                    });
-                },
-
-                isLikelySingleWordSongTitle(value) {
-                    const cleaned = this.sanitizeInput(value);
-                    if (!cleaned || cleaned.includes(' ')) return false;
-                    if (cleaned.length < 3 || cleaned.length > 40) return false;
-                    return /^[a-zA-Z0-9'.-]+$/.test(cleaned);
-                },
-
-                isLikelySwappedTitleArtist(title, artist) {
-                    const cleanedTitle = this.sanitizeInput(title);
-                    const cleanedArtist = this.sanitizeInput(artist);
-                    if (!cleanedTitle || !cleanedArtist) return false;
-
-                    const titleWords = cleanedTitle.split(' ').filter(Boolean);
-                    const titleLooksArtist = this.looksLikeArtistName(cleanedTitle);
-                    const titleLooksPersonName = this.looksLikePersonFullName(cleanedTitle);
-                    const artistLooksSong = this.looksLikeSongTitle(cleanedArtist);
-                    const artistHasStrongSongSignals = this.hasStrongSongTitleSignals(cleanedArtist);
-
-                    if (!artistLooksSong || !artistHasStrongSongSignals) return false;
-                    if (titleLooksPersonName) return true;
-
-                    return titleLooksArtist && titleWords.length <= 2;
-                },
                 
                 // Validasi input di frontend
                 validateInput() {
@@ -412,15 +339,6 @@
                         isValid = false;
                     }
 
-                    // Validasi 7: Deteksi kemungkinan field judul dan artis tertukar
-                    if (title && artist && this.isLikelySwappedTitleArtist(title, artist)) {
-                        this.showTitleError = true;
-                        this.showArtistError = true;
-                        this.titleError = 'Sepertinya field tertukar, isi judul lagu di sini';
-                        this.artistError = 'Sepertinya field tertukar, isi nama artis di sini';
-                        isValid = false;
-                    }
-                    
                     return isValid;
                 },
                 

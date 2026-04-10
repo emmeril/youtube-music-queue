@@ -423,24 +423,6 @@ function isLikelySingleWordSongTitle(value) {
   return /^[a-zA-Z0-9'.-]+$/.test(cleaned);
 }
 
-function isLikelySwappedTitleArtist(title, artist) {
-  const cleanedTitle = sanitizeInput(title);
-  const cleanedArtist = sanitizeInput(artist);
-  if (!cleanedTitle || !cleanedArtist) return false;
-
-  const titleWords = cleanedTitle.split(' ').filter(Boolean);
-  const titleLooksArtist = looksLikeArtistName(cleanedTitle);
-  const titleLooksPersonName = looksLikePersonFullName(cleanedTitle);
-  const artistLooksSong = looksLikeSongTitle(cleanedArtist);
-  const artistHasStrongSongSignals = hasStrongSongTitleSignals(cleanedArtist);
-
-  if (!artistLooksSong || !artistHasStrongSongSignals) return false;
-
-  if (titleLooksPersonName) return true;
-
-  return titleLooksArtist && titleWords.length <= 2;
-}
-
 function classifyQueueRequestError(error = '') {
   if (error.includes('penuh')) {
     return { status: 429, code: 'QUEUE_FULL' };
@@ -714,10 +696,6 @@ function validateSongRequest(query) {
   if (parsed.title && parsed.title.length > 100) errors.push('Judul lagu maksimal 100 karakter');
   if (parsed.artist && parsed.artist.length > 100) errors.push('Nama artis maksimal 100 karakter');
   if (parsed.title && /^\d+$/.test(parsed.title)) errors.push('Judul lagu tidak boleh hanya angka');
-  if (parsed.title && parsed.artist && isLikelySwappedTitleArtist(parsed.title, parsed.artist)) {
-    errors.push('Judul dan nama artis terdeteksi tertukar. Format benar: Judul Lagu - Nama Artis');
-  }
-  
   const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
   if (parsed.title && !validCharsRegex.test(parsed.title)) errors.push('Judul lagu mengandung karakter tidak valid');
   if (parsed.artist && !validCharsRegex.test(parsed.artist)) errors.push('Nama artis mengandung karakter tidak valid');
