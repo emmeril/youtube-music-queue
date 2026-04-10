@@ -2,9 +2,13 @@
 const CONFIG = {
   SERVER_URL: 'https://music.monse.co.id',
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
+  SEARCH_MIN_DURATION_STORAGE_KEY: 'ytmBridgeSearchMinDurationSeconds',
+  SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
   SEARCH_TIMEOUT: 15000,
+  SEARCH_MIN_DURATION_SECONDS: 90,
+  SEARCH_MAX_DURATION_SECONDS: 480,
   DEBUG: true
 };
 
@@ -28,6 +32,55 @@ function normalizeServerUrl(value) {
   const trimmed = value.trim();
   if (!/^https?:\/\//i.test(trimmed)) return '';
   return trimmed.replace(/\/+$/, '');
+}
+
+function normalizeDurationSetting(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function getSearchDurationSettings() {
+  try {
+    const minSeconds = normalizeDurationSetting(
+      window.localStorage.getItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY),
+      CONFIG.SEARCH_MIN_DURATION_SECONDS
+    );
+    const maxSeconds = normalizeDurationSetting(
+      window.localStorage.getItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY),
+      CONFIG.SEARCH_MAX_DURATION_SECONDS
+    );
+
+    return {
+      minSeconds: Math.min(minSeconds, maxSeconds),
+      maxSeconds: Math.max(minSeconds, maxSeconds)
+    };
+  } catch (error) {
+    return {
+      minSeconds: CONFIG.SEARCH_MIN_DURATION_SECONDS,
+      maxSeconds: CONFIG.SEARCH_MAX_DURATION_SECONDS
+    };
+  }
+}
+
+function saveSearchDurationSettings(minSeconds, maxSeconds) {
+  const normalizedMin = normalizeDurationSetting(minSeconds, CONFIG.SEARCH_MIN_DURATION_SECONDS);
+  const normalizedMax = normalizeDurationSetting(maxSeconds, CONFIG.SEARCH_MAX_DURATION_SECONDS);
+  const nextMin = Math.min(normalizedMin, normalizedMax);
+  const nextMax = Math.max(normalizedMin, normalizedMax);
+
+  window.localStorage.setItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY, String(nextMin));
+  window.localStorage.setItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY, String(nextMax));
+
+  return { minSeconds: nextMin, maxSeconds: nextMax };
+}
+
+function resetSearchDurationSettings() {
+  window.localStorage.removeItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY);
+  window.localStorage.removeItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY);
+  return getSearchDurationSettings();
 }
 
 async function probeServerUrl(url, timeoutMs = 1500) {
@@ -545,6 +598,8 @@ class SearchAutoplay {
     this.interval = null;
     this.timeoutId = null;
     this.songFilterApplied = false;
+    this.rejectedCandidateKeys = new Set();
+    this.pendingCandidate = null;
   }
 
   start() {
@@ -599,23 +654,25 @@ class SearchAutoplay {
       this.log(`Found candidate score=${bestCandidate.score}`);
       bestCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => {
+        this.pendingCandidate = bestCandidate;
         bestCandidate.playElement.click();
         this.log('Clicked best candidate play element');
-        this.verifyPlayback();
+        this.verifyPlayback(bestCandidate);
       }, 500);
       this.stop();
       return;
     }
 
     if (this.attempts >= 4) {
-      const fallbackPlayElement = this.findFallbackPlayElement();
-      if (fallbackPlayElement) {
+      const fallbackCandidate = this.findFallbackPlayElement();
+      if (fallbackCandidate?.playElement) {
         this.log('No strong candidate yet, using fallback play element');
-        fallbackPlayElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        fallbackCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         setTimeout(() => {
-          fallbackPlayElement.click();
+          this.pendingCandidate = fallbackCandidate;
+          fallbackCandidate.playElement.click();
           this.log('Clicked fallback play element');
-          this.verifyPlayback();
+          this.verifyPlayback(fallbackCandidate);
         }, 500);
         this.stop();
         return;
@@ -659,8 +716,13 @@ class SearchAutoplay {
       const rowText = RequestProcessor.normalizeText(row.innerText || '');
       const durationSeconds = this.extractDurationSeconds(rowText);
       const rowMeta = this.extractRowMeta(row, rowText);
+      const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
+      if (!this.isCandidateAllowed(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
+        continue;
+      }
+
       const score = this.scoreRow(rowMeta, durationSeconds, target);
-      candidates.push({ playElement, score, durationSeconds, rowMeta });
+      candidates.push({ playElement, score, durationSeconds, rowMeta, candidateKey });
     }
 
     if (!candidates.length) return undefined;
@@ -710,19 +772,60 @@ class SearchAutoplay {
       const rows = Array.from(document.querySelectorAll(rowSelector)).slice(0, 10);
       for (const row of rows) {
         const rowText = RequestProcessor.normalizeText(row.innerText || '');
-        if (rowText.includes('playlist') || rowText.includes('album') || rowText.includes('podcast')) {
+        const durationSeconds = this.extractDurationSeconds(rowText);
+        const rowMeta = this.extractRowMeta(row, rowText);
+        const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
+        if (!this.isCandidateAllowed(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
           continue;
         }
 
-        // Periksa durasi, lewati jika terlalu panjang
-        const durationSeconds = this.extractDurationSeconds(rowText);
-        if (durationSeconds > 420) continue; // skip lagu panjang
-
         const playElement = this.findPlayButton(row);
-        if (playElement) return playElement;
+        if (playElement) {
+          return { playElement, durationSeconds, rowMeta, candidateKey, score: 0 };
+        }
       }
     }
     return null;
+  }
+
+  isCandidateAllowed(text, durationSeconds) {
+    if (!text) return false;
+
+    const blockedTerms = [
+      'playlist',
+      'album',
+      'full album',
+      'podcast',
+      'episode',
+      'mix',
+      'live',
+      'karaoke',
+      'dj set',
+      'radio',
+      'compilation',
+      'nonstop',
+      'slowed',
+      'reverb',
+      'instrumental'
+    ];
+
+    if (blockedTerms.some((term) => text.includes(term))) {
+      return false;
+    }
+
+    return this.isDurationAllowed(durationSeconds);
+  }
+
+  isDurationAllowed(durationSeconds) {
+    const settings = getSearchDurationSettings();
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      return false;
+    }
+
+    return (
+      durationSeconds >= settings.minSeconds &&
+      durationSeconds <= settings.maxSeconds
+    );
   }
 
   extractRowMeta(row, rowText) {
@@ -743,23 +846,35 @@ class SearchAutoplay {
     return { title, subtitle, text: rowText };
   }
 
+  getCandidateKey(meta, durationSeconds) {
+    return [meta?.title || '', meta?.subtitle || '', durationSeconds || 0].join('|');
+  }
+
   scoreRow(meta, durationSeconds, target) {
+    if (!this.isCandidateAllowed(meta.text, durationSeconds)) {
+      return -100;
+    }
+
     let score = 0;
     const text = meta.text;
 
-    // Penalti durasi diperketat
-    if (durationSeconds >= 90 && durationSeconds <= 420) {
-      score += 4;
-    } else if (durationSeconds > 420) {
-      score -= 10; // penalti besar untuk durasi panjang
-    } else if (durationSeconds > 0 && durationSeconds < 90) {
-      score -= 4;
-    } else if (durationSeconds === 0) {
-      score -= 5; // penalti untuk durasi tidak terdeteksi
-    }
+    score += 4;
 
     const positiveTerms = ['song', 'official', 'audio', 'video', 'single'];
-    const negativeTerms = ['album', 'playlist', 'mix', 'live', 'podcast', 'episode', 'full album', 'karaoke'];
+    const negativeTerms = [
+      'album',
+      'playlist',
+      'mix',
+      'live',
+      'podcast',
+      'episode',
+      'full album',
+      'karaoke',
+      'compilation',
+      'nonstop',
+      'slowed',
+      'reverb'
+    ];
 
     for (const term of positiveTerms) {
       if (text.includes(term)) score += 1;
@@ -814,17 +929,63 @@ class SearchAutoplay {
     return 0;
   }
 
-  async verifyPlayback() {
+  async verifyPlayback(candidate = null) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const video = document.querySelector('video');
     if (video && (video.currentTime > 0 || !video.paused)) {
+      const actualDurationSeconds = Math.round(Number(video.duration || 0));
+      if (!this.isDurationAllowed(actualDurationSeconds)) {
+        const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
+        if (candidateKey) {
+          this.rejectedCandidateKeys.add(candidateKey);
+        }
+
+        this.log(`Rejected playing candidate due to real duration=${actualDurationSeconds}s`);
+        this.pendingCandidate = null;
+        this.rejectCurrentPlayback(video);
+        this.attempts = 0;
+        this.start();
+        return;
+      }
+
       this.log('Playback verified successfully');
+      this.pendingCandidate = null;
       this.goBackAfterDelay();
     } else {
       this.log('Playback not detected, retrying...');
+      const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
+      if (candidateKey) {
+        this.rejectedCandidateKeys.add(candidateKey);
+      }
+      this.pendingCandidate = null;
       this.attempts = 0;
       this.start();
+    }
+  }
+
+  rejectCurrentPlayback(video) {
+    try {
+      video.pause();
+      video.currentTime = 0;
+    } catch (error) {
+      this.error('Failed to reset rejected playback', error);
+    }
+
+    const selectors = [
+      'ytmusic-player-bar button[aria-label*="Next"]',
+      'ytmusic-player-bar button[aria-label*="Berikutnya"]',
+      'ytmusic-player-bar tp-yt-paper-icon-button.next-button',
+      'tp-yt-paper-icon-button.next-button'
+    ];
+
+    for (const selector of selectors) {
+      const button = document.querySelector(selector);
+      if (button instanceof HTMLElement && !button.disabled) {
+        button.click();
+        this.log('Skipped rejected playback using next button');
+        return;
+      }
     }
   }
 
@@ -1093,6 +1254,7 @@ class DebugPanel {
 
   static create() {
     if (this.panel) return;
+    const searchDurationSettings = getSearchDurationSettings();
 
     this.panel = document.createElement('div');
     this.panel.id = 'ytm-debug-panel';
@@ -1158,6 +1320,20 @@ class DebugPanel {
         </div>
       </div>
 
+      <div style="margin-bottom: 8px;">
+        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">FILTER DURASI</div>
+        <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+          <input id="debug-search-min-duration" type="number" min="1" step="1" value="${searchDurationSettings.minSeconds}" placeholder="Min detik"
+            style="flex: 1; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
+          <input id="debug-search-max-duration" type="number" min="1" step="1" value="${searchDurationSettings.maxSeconds}" placeholder="Max detik"
+            style="flex: 1; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button id="debug-duration-save" style="flex: 1; background: #0f766e; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Filter</button>
+          <button id="debug-duration-reset" style="flex: 1; background: #92400e; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Filter</button>
+        </div>
+      </div>
+
       <div>
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">AKSI CEPAT</div>
         <div style="display: flex; gap: 6px;">
@@ -1179,6 +1355,8 @@ class DebugPanel {
         #debug-server-save:hover { background: #15803d !important; }
         #debug-server-reset:hover { background: #4b5563 !important; }
         #debug-server-detect:hover { background: #6d28d9 !important; }
+        #debug-duration-save:hover { background: #115e59 !important; }
+        #debug-duration-reset:hover { background: #b45309 !important; }
         #debug-skip:hover { background: #ffb142 !important; }
         #debug-check:hover { background: #5352ed !important; }
       </style>
@@ -1244,6 +1422,34 @@ class DebugPanel {
         button.disabled = false;
         button.textContent = originalLabel;
       }
+    });
+
+    document.getElementById('debug-duration-save').addEventListener('click', () => {
+      const minInput = document.getElementById('debug-search-min-duration');
+      const maxInput = document.getElementById('debug-search-max-duration');
+      const rawMin = minInput?.value || '';
+      const rawMax = maxInput?.value || '';
+
+      const parsedMin = Number.parseInt(rawMin, 10);
+      const parsedMax = Number.parseInt(rawMax, 10);
+      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax) || parsedMin <= 0 || parsedMax <= 0) {
+        this.setStatus('Durasi min/max harus angka lebih dari 0', true);
+        return;
+      }
+
+      const settings = saveSearchDurationSettings(parsedMin, parsedMax);
+      if (minInput) minInput.value = String(settings.minSeconds);
+      if (maxInput) maxInput.value = String(settings.maxSeconds);
+      this.setStatus(`Filter durasi disimpan: ${settings.minSeconds}s - ${settings.maxSeconds}s`);
+    });
+
+    document.getElementById('debug-duration-reset').addEventListener('click', () => {
+      const settings = resetSearchDurationSettings();
+      const minInput = document.getElementById('debug-search-min-duration');
+      const maxInput = document.getElementById('debug-search-max-duration');
+      if (minInput) minInput.value = String(settings.minSeconds);
+      if (maxInput) maxInput.value = String(settings.maxSeconds);
+      this.setStatus(`Filter durasi reset: ${settings.minSeconds}s - ${settings.maxSeconds}s`);
     });
 
     document.getElementById('debug-skip').addEventListener('click', async () => {
