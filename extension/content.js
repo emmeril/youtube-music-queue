@@ -788,34 +788,6 @@ class SearchAutoplay {
     return null;
   }
 
-  isCandidateAllowed(text, durationSeconds) {
-    if (!text) return false;
-
-    const blockedTerms = [
-      'playlist',
-      'album',
-      'full album',
-      'podcast',
-      'episode',
-      'mix',
-      'live',
-      'karaoke',
-      'dj set',
-      'radio',
-      'compilation',
-      'nonstop',
-      'slowed',
-      'reverb',
-      'instrumental'
-    ];
-
-    if (blockedTerms.some((term) => text.includes(term))) {
-      return false;
-    }
-
-    return this.isDurationAllowed(durationSeconds);
-  }
-
   isCandidateAllowedForSearch(text, durationSeconds) {
     if (!text) return false;
 
@@ -978,9 +950,8 @@ class SearchAutoplay {
 
         this.log(`Rejected playing candidate due to real duration=${actualDurationSeconds}s`);
         this.pendingCandidate = null;
-        this.rejectCurrentPlayback(video);
+        await this.rejectCurrentPlayback(video);
         this.attempts = 0;
-        this.start();
         return;
       }
 
@@ -999,29 +970,28 @@ class SearchAutoplay {
     }
   }
 
-  rejectCurrentPlayback(video) {
+  async rejectCurrentPlayback(video) {
+    this.stop();
+
     try {
-      video.pause();
-      video.currentTime = 0;
+      if (video) {
+        video.pause();
+        video.currentTime = 0;
+      }
     } catch (error) {
       this.error('Failed to reset rejected playback', error);
     }
 
-    const selectors = [
-      'ytmusic-player-bar button[aria-label*="Next"]',
-      'ytmusic-player-bar button[aria-label*="Berikutnya"]',
-      'ytmusic-player-bar tp-yt-paper-icon-button.next-button',
-      'tp-yt-paper-icon-button.next-button'
-    ];
+    DebugPanel.setStatus('Lagu terlalu panjang, lanjut request berikutnya');
 
-    for (const selector of selectors) {
-      const button = document.querySelector(selector);
-      if (button instanceof HTMLElement && !button.disabled) {
-        button.click();
-        this.log('Skipped rejected playback using next button');
-        return;
-      }
+    try {
+      await ServerAPI.skipCurrent();
+      this.log('Skipped current server request after rejected playback');
+    } catch (error) {
+      this.error('Failed to skip current server request', error);
     }
+
+    setTimeout(() => RequestProcessor.checkRequests(), 500);
   }
 
   tryAlternativeMethods() {
