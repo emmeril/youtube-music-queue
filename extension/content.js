@@ -104,6 +104,15 @@ function setPendingSearchUrl(url) {
   }
 }
 
+function getSearchQueryValue(url) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return (parsed.searchParams.get('q') || '').trim();
+  } catch (error) {
+    return '';
+  }
+}
+
 async function probeServerUrl(url, timeoutMs = 1500) {
   const normalizedUrl = normalizeServerUrl(url);
   if (!normalizedUrl) return false;
@@ -1121,7 +1130,12 @@ class RequestProcessor {
 
   static shouldAutoplayForUrl(url = window.location.href) {
     const pendingSearchUrl = state.pendingSearchUrl || getPendingSearchUrl();
-    return Boolean(pendingSearchUrl) && pendingSearchUrl === url;
+    if (!pendingSearchUrl || !url) return false;
+
+    const pendingQuery = getSearchQueryValue(pendingSearchUrl);
+    const currentQuery = getSearchQueryValue(url);
+
+    return Boolean(pendingQuery) && pendingQuery === currentQuery;
   }
 
   static getRequestSignature(request) {
