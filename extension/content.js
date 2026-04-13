@@ -4,6 +4,7 @@ const CONFIG = {
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
   SEARCH_MIN_DURATION_STORAGE_KEY: 'ytmBridgeSearchMinDurationSeconds',
   SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
+  PENDING_SEARCH_URL_STORAGE_KEY: 'ytmBridgePendingSearchUrl',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
   SEARCH_TIMEOUT: 15000,
@@ -83,6 +84,26 @@ function resetSearchDurationSettings() {
   return getSearchDurationSettings();
 }
 
+function getPendingSearchUrl() {
+  try {
+    return window.sessionStorage.getItem(CONFIG.PENDING_SEARCH_URL_STORAGE_KEY);
+  } catch (error) {
+    return null;
+  }
+}
+
+function setPendingSearchUrl(url) {
+  try {
+    if (url) {
+      window.sessionStorage.setItem(CONFIG.PENDING_SEARCH_URL_STORAGE_KEY, url);
+    } else {
+      window.sessionStorage.removeItem(CONFIG.PENDING_SEARCH_URL_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Ignore storage access failures and keep runtime-only state.
+  }
+}
+
 async function probeServerUrl(url, timeoutMs = 1500) {
   const normalizedUrl = normalizeServerUrl(url);
   if (!normalizedUrl) return false;
@@ -136,7 +157,8 @@ const state = {
   debugMode: CONFIG.DEBUG,
   retryCount: 0,
   maxRetries: 3,
-  searchTarget: null
+  searchTarget: null,
+  pendingSearchUrl: null
 };
 
 function getRuntime() {
@@ -999,6 +1021,7 @@ class SearchAutoplay {
 
       this.log('Playback verified successfully');
       this.pendingCandidate = null;
+      RequestProcessor.clearPendingSearchUrl();
       this.goBackAfterDelay();
     } else {
       this.log('Playback not detected, retrying...');
@@ -1087,6 +1110,20 @@ class RequestProcessor {
   static lastRequestTime = 0;
   static cooldown = 5000;
 
+  static markPendingSearchUrl(searchUrl) {
+    state.pendingSearchUrl = searchUrl || null;
+    setPendingSearchUrl(state.pendingSearchUrl);
+  }
+
+  static clearPendingSearchUrl() {
+    this.markPendingSearchUrl(null);
+  }
+
+  static shouldAutoplayForUrl(url = window.location.href) {
+    const pendingSearchUrl = state.pendingSearchUrl || getPendingSearchUrl();
+    return Boolean(pendingSearchUrl) && pendingSearchUrl === url;
+  }
+
   static getRequestSignature(request) {
     if (!request) return '';
     return [request.id || '', request.time || '', request.query || ''].join('|');
@@ -1162,6 +1199,7 @@ class RequestProcessor {
       state.searchTarget = searchTarget;
       const searchQuery = this.buildSearchQuery(searchTarget);
       const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
+      this.markPendingSearchUrl(searchUrl);
 
       if (window.location.href === searchUrl) {
         this.log('Already on search page, starting autoplay');
@@ -1182,6 +1220,11 @@ class RequestProcessor {
   }
 
   static startSearchAutoplay() {
+    if (!this.shouldAutoplayForUrl(window.location.href)) {
+      this.log('Skipping autoplay because this search page is not from a server request');
+      return;
+    }
+
     const runtime = getRuntime();
     if (runtime.searchAutoplay) {
       runtime.searchAutoplay.stop();
@@ -1579,9 +1622,11 @@ class URLMonitor {
   static handleURLChange(oldURL, newURL) {
     console.log(`URL changed: ${oldURL} -> ${newURL}`);
 
-    if (newURL.includes('/search?q=')) {
+    if (RequestProcessor.shouldAutoplayForUrl(newURL)) {
       console.log('Search page detected, starting autoplay in 1.5s');
       setTimeout(() => RequestProcessor.startSearchAutoplay(), 1500);
+    } else if (!newURL.includes('/search?q=')) {
+      RequestProcessor.clearPendingSearchUrl();
     }
 
     if (!oldURL.includes('music.youtube.com') || !newURL.includes('music.youtube.com')) {
@@ -1600,6 +1645,7 @@ function initialize() {
   }
 
   runtime.initialized = true;
+  state.pendingSearchUrl = getPendingSearchUrl();
   console.log('Initializing YouTube Music Bridge...');
 
   runtime.videoMonitor = new VideoMonitor();
@@ -1615,7 +1661,7 @@ function initialize() {
   setTimeout(() => SongManager.update(), 1000);
   setTimeout(() => RequestProcessor.checkRequests(), 2000);
 
-  if (window.location.href.includes('/search?q=')) {
+  if (RequestProcessor.shouldAutoplayForUrl(window.location.href)) {
     setTimeout(() => RequestProcessor.startSearchAutoplay(), 2000);
   }
 
