@@ -602,6 +602,39 @@ class SearchAutoplay {
     this.pendingCandidate = null;
   }
 
+  isSearchPage(url = window.location.href) {
+    return typeof url === 'string' && url.includes('/search?q=');
+  }
+
+  getCurrentVideoState() {
+    const video = document.querySelector('video');
+    return {
+      video,
+      src: video?.currentSrc || video?.src || '',
+      currentTime: Number(video?.currentTime || 0),
+      paused: Boolean(video?.paused)
+    };
+  }
+
+  hasPlaybackActuallyStarted(candidate = null) {
+    const currentUrl = window.location.href;
+    const { video, src, currentTime, paused } = this.getCurrentVideoState();
+    if (!video || (paused && currentTime <= 0)) {
+      return false;
+    }
+
+    if (!this.isSearchPage(currentUrl)) {
+      return true;
+    }
+
+    const previousUrl = candidate?.sourceUrl || '';
+    const previousSrc = candidate?.sourceVideoSrc || '';
+    const navigatedAwayFromPreviousPage = previousUrl && currentUrl !== previousUrl && !this.isSearchPage(currentUrl);
+    const sourceChanged = src && previousSrc && src !== previousSrc;
+
+    return navigatedAwayFromPreviousPage || sourceChanged;
+  }
+
   start() {
     if (this.interval) {
       return;
@@ -639,8 +672,7 @@ class SearchAutoplay {
   }
 
   findAndPlay() {
-    const video = document.querySelector('video');
-    if (video && (video.currentTime > 0 || !video.paused)) {
+    if (this.pendingCandidate && this.hasPlaybackActuallyStarted(this.pendingCandidate)) {
       this.log('Video already playing, stopping search');
       this.stop();
       this.goBackAfterDelay();
@@ -654,10 +686,15 @@ class SearchAutoplay {
       this.log(`Found candidate score=${bestCandidate.score}`);
       bestCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setTimeout(() => {
-        this.pendingCandidate = bestCandidate;
+        const playbackState = this.getCurrentVideoState();
+        this.pendingCandidate = {
+          ...bestCandidate,
+          sourceUrl: window.location.href,
+          sourceVideoSrc: playbackState.src
+        };
         bestCandidate.playElement.click();
         this.log('Clicked best candidate play element');
-        this.verifyPlayback(bestCandidate);
+        this.verifyPlayback(this.pendingCandidate);
       }, 500);
       this.stop();
       return;
@@ -669,10 +706,15 @@ class SearchAutoplay {
         this.log('No strong candidate yet, using fallback play element');
         fallbackCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         setTimeout(() => {
-          this.pendingCandidate = fallbackCandidate;
+          const playbackState = this.getCurrentVideoState();
+          this.pendingCandidate = {
+            ...fallbackCandidate,
+            sourceUrl: window.location.href,
+            sourceVideoSrc: playbackState.src
+          };
           fallbackCandidate.playElement.click();
           this.log('Clicked fallback play element');
-          this.verifyPlayback(fallbackCandidate);
+          this.verifyPlayback(this.pendingCandidate);
         }, 500);
         this.stop();
         return;
@@ -939,8 +981,8 @@ class SearchAutoplay {
   async verifyPlayback(candidate = null) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    const video = document.querySelector('video');
-    if (video && (video.currentTime > 0 || !video.paused)) {
+    const { video } = this.getCurrentVideoState();
+    if (this.hasPlaybackActuallyStarted(candidate)) {
       const actualDurationSeconds = Math.round(Number(video.duration || 0));
       if (!this.isDurationAllowed(actualDurationSeconds)) {
         const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
