@@ -4,6 +4,7 @@ const CONFIG = {
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
   SEARCH_MIN_DURATION_STORAGE_KEY: 'ytmBridgeSearchMinDurationSeconds',
   SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
+  ADMIN_TOKEN_STORAGE_KEY: 'ytmBridgeAdminToken',
   PENDING_SEARCH_URL_STORAGE_KEY: 'ytmBridgePendingSearchUrl',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
@@ -33,6 +34,49 @@ function normalizeServerUrl(value) {
   const trimmed = value.trim();
   if (!/^https?:\/\//i.test(trimmed)) return '';
   return trimmed.replace(/\/+$/, '');
+}
+
+function getAdminToken() {
+  try {
+    return window.localStorage.getItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY) || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function saveAdminToken(token) {
+  try {
+    const trimmedToken = typeof token === 'string' ? token.trim() : '';
+    if (trimmedToken) {
+      window.localStorage.setItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY, trimmedToken);
+      return trimmedToken;
+    }
+    window.localStorage.removeItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY);
+    return '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function resetAdminToken() {
+  try {
+    window.localStorage.removeItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY);
+  } catch (error) {
+    // ignore
+  }
+  return '';
+}
+
+function getServerHeaders(includeJson = false) {
+  const headers = {};
+  if (includeJson) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const token = getAdminToken();
+  if (token) {
+    headers['x-admin-token'] = token;
+  }
+  return headers;
 }
 
 function normalizeDurationSetting(value, fallback) {
@@ -1335,16 +1379,46 @@ class ServerAPI {
   static async skipCurrent() {
     try {
       const response = await fetch(`${getServerUrl()}/skip-current`, {
-        method: 'POST'
+        method: 'POST',
+        headers: getServerHeaders()
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          console.warn('skipCurrent unauthorized, falling back to song-ended');
+          return this.fallbackSkipCurrent();
+        }
         throw new Error(`skipCurrent failed with status ${response.status}`);
       }
 
       return response.json();
     } catch (error) {
       console.error('Failed to skip:', error);
+      if (error?.message?.includes('skipCurrent failed') || error?.message?.includes('NetworkError')) {
+        return this.fallbackSkipCurrent();
+      }
+      throw error;
+    }
+  }
+
+  static async fallbackSkipCurrent() {
+    try {
+      const response = await fetch(`${getServerUrl()}/song-ended`, {
+        method: 'POST',
+        headers: getServerHeaders(true),
+        body: JSON.stringify({
+          timestamp: Date.now(),
+          url: window.location.href
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`fallback skipCurrent failed with status ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Failed to fallback skip:', error);
       throw error;
     }
   }
@@ -1421,6 +1495,12 @@ class DebugPanel {
             <button id="debug-server-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset</button>
           </div>
           <button id="debug-server-detect" style="width: 100%; background: #7c3aed; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Auto Detect</button>
+          <input id="debug-admin-token" type="text" spellcheck="false" value="${getAdminToken()}" placeholder="Super admin token"
+            style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
+          <div style="display: flex; gap: 6px;">
+            <button id="debug-admin-save" style="flex: 1; background: #286ef1; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Token</button>
+            <button id="debug-admin-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Token</button>
+          </div>
         </div>
       </div>
 
@@ -1526,6 +1606,21 @@ class DebugPanel {
         button.disabled = false;
         button.textContent = originalLabel;
       }
+    });
+
+    document.getElementById('debug-admin-save').addEventListener('click', () => {
+      const input = document.getElementById('debug-admin-token');
+      const rawValue = (input?.value || '').trim();
+      const savedToken = saveAdminToken(rawValue);
+      if (input) input.value = savedToken;
+      this.setStatus(savedToken ? 'Admin token disimpan' : 'Token admin dihapus');
+    });
+
+    document.getElementById('debug-admin-reset').addEventListener('click', () => {
+      resetAdminToken();
+      const input = document.getElementById('debug-admin-token');
+      if (input) input.value = '';
+      this.setStatus('Token admin direset');
     });
 
     document.getElementById('debug-duration-save').addEventListener('click', () => {
