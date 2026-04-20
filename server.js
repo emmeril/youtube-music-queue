@@ -114,6 +114,39 @@ function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
   return { ok: true, session };
 }
 
+async function validateAdminPassword(password, requiredRole = null) {
+  const normalizedPassword = normalizeInput(password);
+  if (isBlank(normalizedPassword)) {
+    return { ok: false, reason: 'unauthorized' };
+  }
+
+  const superCredential = await getAdminCredential('super');
+  const adminCredential = await getAdminCredential('admin');
+
+  let role = null;
+  if (superCredential && normalizedPassword === superCredential.password) {
+    role = 'super';
+  } else if (adminCredential && normalizedPassword === adminCredential.password) {
+    role = 'admin';
+  }
+
+  if (!role) {
+    return { ok: false, reason: 'unauthorized' };
+  }
+
+  if (requiredRole === 'super' && role !== 'super') {
+    return { ok: false, reason: 'forbidden', role };
+  }
+
+  return {
+    ok: true,
+    session: {
+      role,
+      authMethod: 'password'
+    }
+  };
+}
+
 function isAdminSessionTokenValid(sessionToken) {
   if (!sessionToken) return false;
   const session = adminSessions.get(sessionToken);
@@ -145,20 +178,45 @@ function sendAdminExpired(res) {
   );
 }
 
-function requireAdmin(req, res, next) {
-  const validation = validateAdminSession(req.headers['x-admin-token'], 'Admin');
+async function requireAdmin(req, res, next) {
+  const passwordHeader = req.headers['x-admin-password'];
+  const tokenHeader = req.headers['x-admin-token'];
+  const validation = passwordHeader
+    ? await validateAdminPassword(passwordHeader)
+    : validateAdminSession(tokenHeader, 'Admin');
+
   if (!validation.ok) {
     return validation.reason === 'expired' ? sendAdminExpired(res) : sendAdminDenied(res);
   }
 
   req.adminRole = validation.session.role;
+  req.adminAuthMethod = validation.session.authMethod || 'session';
   next();
 }
 
-function requireSuperAdmin(req, res, next) {
-  const validation = validateAdminSession(req.headers['x-admin-token'], 'Super admin');
+async function requireSuperAdmin(req, res, next) {
+  const passwordHeader = req.headers['x-admin-password'];
+  const tokenHeader = req.headers['x-admin-token'];
+  const validation = passwordHeader
+    ? await validateAdminPassword(passwordHeader, 'super')
+    : validateAdminSession(tokenHeader, 'Super admin');
+
   if (!validation.ok) {
-    return validation.reason === 'expired' ? sendAdminExpired(res) : sendAdminDenied(res);
+    if (validation.reason === 'expired') {
+      return sendAdminExpired(res);
+    }
+
+    if (validation.reason === 'forbidden') {
+      return sendError(
+        res,
+        403,
+        'SUPER_ADMIN_REQUIRED',
+        'Akses ditolak. Hanya Super Admin yang bisa melakukan aksi ini.',
+        { requiresSuperAdmin: true }
+      );
+    }
+
+    return sendAdminDenied(res);
   }
 
   if (validation.session.role !== 'super') {
@@ -172,6 +230,7 @@ function requireSuperAdmin(req, res, next) {
   }
   
   req.adminRole = validation.session.role;
+  req.adminAuthMethod = validation.session.authMethod || 'session';
   next();
 }
 

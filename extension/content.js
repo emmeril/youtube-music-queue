@@ -4,7 +4,7 @@ const CONFIG = {
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
   SEARCH_MIN_DURATION_STORAGE_KEY: 'ytmBridgeSearchMinDurationSeconds',
   SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
-  ADMIN_TOKEN_STORAGE_KEY: 'ytmBridgeAdminToken',
+  ADMIN_SECRET_STORAGE_KEY: 'ytmBridgeAdminSecret',
   PENDING_SEARCH_URL_STORAGE_KEY: 'ytmBridgePendingSearchUrl',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
@@ -36,31 +36,31 @@ function normalizeServerUrl(value) {
   return trimmed.replace(/\/+$/, '');
 }
 
-function getAdminToken() {
+function getAdminSecret() {
   try {
-    return window.localStorage.getItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY) || '';
+    return window.localStorage.getItem(CONFIG.ADMIN_SECRET_STORAGE_KEY) || '';
   } catch (error) {
     return '';
   }
 }
 
-function saveAdminToken(token) {
+function saveAdminSecret(secret) {
   try {
-    const trimmedToken = typeof token === 'string' ? token.trim() : '';
-    if (trimmedToken) {
-      window.localStorage.setItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY, trimmedToken);
-      return trimmedToken;
+    const trimmedSecret = typeof secret === 'string' ? secret.trim() : '';
+    if (trimmedSecret) {
+      window.localStorage.setItem(CONFIG.ADMIN_SECRET_STORAGE_KEY, trimmedSecret);
+      return trimmedSecret;
     }
-    window.localStorage.removeItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(CONFIG.ADMIN_SECRET_STORAGE_KEY);
     return '';
   } catch (error) {
     return '';
   }
 }
 
-function resetAdminToken() {
+function resetAdminSecret() {
   try {
-    window.localStorage.removeItem(CONFIG.ADMIN_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(CONFIG.ADMIN_SECRET_STORAGE_KEY);
   } catch (error) {
     // ignore
   }
@@ -72,9 +72,9 @@ function getServerHeaders(includeJson = false) {
   if (includeJson) {
     headers['Content-Type'] = 'application/json';
   }
-  const token = getAdminToken();
-  if (token) {
-    headers['x-admin-token'] = token;
+  const adminSecret = getAdminSecret();
+  if (adminSecret) {
+    headers['x-admin-password'] = adminSecret;
   }
   return headers;
 }
@@ -1495,11 +1495,11 @@ class DebugPanel {
             <button id="debug-server-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset</button>
           </div>
           <button id="debug-server-detect" style="width: 100%; background: #7c3aed; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Auto Detect</button>
-          <input id="debug-admin-token" type="text" spellcheck="false" value="${getAdminToken()}" placeholder="Super admin token"
+          <input id="debug-admin-secret" type="password" spellcheck="false" value="${getAdminSecret()}" placeholder="Password Super Admin"
             style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
           <div style="display: flex; gap: 6px;">
-            <button id="debug-admin-save" style="flex: 1; background: #286ef1; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Token</button>
-            <button id="debug-admin-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Token</button>
+            <button id="debug-admin-save" style="flex: 1; background: #286ef1; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Password</button>
+            <button id="debug-admin-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Password</button>
           </div>
         </div>
       </div>
@@ -1609,18 +1609,18 @@ class DebugPanel {
     });
 
     document.getElementById('debug-admin-save').addEventListener('click', () => {
-      const input = document.getElementById('debug-admin-token');
+      const input = document.getElementById('debug-admin-secret');
       const rawValue = (input?.value || '').trim();
-      const savedToken = saveAdminToken(rawValue);
-      if (input) input.value = savedToken;
-      this.setStatus(savedToken ? 'Admin token disimpan' : 'Token admin dihapus');
+      const savedSecret = saveAdminSecret(rawValue);
+      if (input) input.value = savedSecret;
+      this.setStatus(savedSecret ? 'Password Super Admin disimpan' : 'Password Super Admin dihapus');
     });
 
     document.getElementById('debug-admin-reset').addEventListener('click', () => {
-      resetAdminToken();
-      const input = document.getElementById('debug-admin-token');
+      resetAdminSecret();
+      const input = document.getElementById('debug-admin-secret');
       if (input) input.value = '';
-      this.setStatus('Token admin direset');
+      this.setStatus('Password Super Admin direset');
     });
 
     document.getElementById('debug-duration-save').addEventListener('click', () => {
