@@ -642,6 +642,31 @@
                         this.showToast('Gagal mengubah mode antrian', 'error');
                     }
                 },
+
+                async resetSystemStats() {
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa mereset statistik sistem', 'error');
+                        return;
+                    }
+
+                    if (!confirm('Reset Total Diputar dan Total Menit? Statistik lain akan tetap disimpan.')) return;
+
+                    try {
+                        const result = await this.apiRequest('/admin/reset-system-stats', {
+                            method: 'POST',
+                            headers: this.getAdminHeaders()
+                        });
+
+                        if (result.ok) {
+                            await this.loadData();
+                            this.showToast(result.data?.message || 'Statistik sistem berhasil direset', 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal mereset statistik sistem');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal mereset statistik sistem', 'error');
+                    }
+                },
                 
                 // Refresh all data
                 async refreshAll() {

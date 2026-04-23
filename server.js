@@ -631,6 +631,11 @@ function buildPersistedStats() {
   };
 }
 
+function resetSystemStatsMetrics() {
+  state.stats.totalSongsPlayed = 0;
+  state.stats.totalPlayTime = 0;
+}
+
 function getRandomQueueMeta() {
   return {
     enabled: state.randomQueueEnabled,
@@ -1657,6 +1662,28 @@ app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
       message: `Mode antrian acak ${state.randomQueueEnabled ? 'diaktifkan' : 'dimatikan'}`,
       randomQueueEnabled: state.randomQueueEnabled,
       randomQueue: getRandomQueueMeta()
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
+});
+
+app.post('/admin/reset-system-stats', requireSuperAdmin, async (req, res) => {
+  try {
+    const previousStats = {
+      totalRequests: state.stats.totalRequests,
+      totalSongsPlayed: state.stats.totalSongsPlayed,
+      totalPlayTime: state.stats.totalPlayTime
+    };
+
+    resetSystemStatsMetrics();
+    await saveAppState();
+
+    res.json({
+      success: true,
+      message: 'Statistik sistem berhasil direset untuk Total Diputar dan Total Menit',
+      stats: state.stats,
+      previousStats
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
