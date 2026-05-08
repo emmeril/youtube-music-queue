@@ -755,6 +755,40 @@
                     <span>Reset Statistik</span>
                 </button>
             </div>
+
+            <div x-show="isAdmin && adminRole === 'super'" class="mb-4 md:mb-6 p-4 bg-gray-800/60 border border-gray-700 rounded-xl">
+                <div class="flex items-center gap-2 mb-3">
+                    <i class="fas fa-key text-yellow-400"></i>
+                    <h3 class="text-sm md:text-base font-semibold text-white">Manajemen Password Admin</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3">
+                    <select x-model="passwordManagementRole"
+                            class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                        <option value="admin">Admin</option>
+                        <option value="super">Super Admin</option>
+                    </select>
+                    <input x-model="passwordManagementValue"
+                           type="password"
+                           placeholder="Password baru"
+                           minlength="4"
+                           maxlength="100"
+                           class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                    <input x-model="passwordManagementConfirm"
+                           type="password"
+                           placeholder="Konfirmasi password"
+                           minlength="4"
+                           maxlength="100"
+                           @keydown.enter="updateManagedPassword()"
+                           class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500">
+                </div>
+                <div class="mt-3 flex items-center justify-between gap-2">
+                    <p class="text-xs text-gray-400">Hanya Super Admin yang dapat mengubah password Admin dan Super Admin.</p>
+                    <button @click="updateManagedPassword()"
+                            class="px-3 py-2 text-xs md:text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors">
+                        Simpan Password
+                    </button>
+                </div>
+            </div>
             
             <div class="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 stats-grid-mobile">
                 <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl">

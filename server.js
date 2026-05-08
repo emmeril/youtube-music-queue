@@ -194,6 +194,17 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+function clearAdminSessionsByRole(role) {
+  let clearedCount = 0;
+  for (const [token, session] of adminSessions.entries()) {
+    if (session?.role === role) {
+      adminSessions.delete(token);
+      clearedCount++;
+    }
+  }
+  return clearedCount;
+}
+
 async function requireSuperAdmin(req, res, next) {
   const passwordHeader = req.headers['x-admin-password'];
   const tokenHeader = req.headers['x-admin-token'];
@@ -1344,10 +1355,15 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
     }
 
     await upsertAdminCredential(role, password);
+    const clearedSessions = clearAdminSessionsByRole(role);
     console.log(`[AUTH] ${role === 'super' ? 'Super Admin' : 'Admin'} password updated in database`);
+    if (clearedSessions > 0) {
+      console.log(`[AUTH] Cleared ${clearedSessions} active ${role} session(s) after password update`);
+    }
     res.json({
       success: true,
-      message: `Password ${role} berhasil disimpan ke database`
+      message: `Password ${role} berhasil disimpan ke database`,
+      clearedSessions
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);

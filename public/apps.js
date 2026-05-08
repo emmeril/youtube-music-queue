@@ -56,6 +56,9 @@
                 adminSessionExpires: null,
                 showAdminLogin: false,
                 adminPassword: '',
+                passwordManagementRole: 'admin',
+                passwordManagementValue: '',
+                passwordManagementConfirm: '',
                 
                 // Toast
                 toast: {
@@ -665,6 +668,55 @@
                         }
                     } catch (error) {
                         this.showToast('Gagal mereset statistik sistem', 'error');
+                    }
+                },
+
+                async updateManagedPassword() {
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa mengatur password', 'error');
+                        return;
+                    }
+
+                    const role = this.passwordManagementRole === 'super' ? 'super' : 'admin';
+                    const password = (this.passwordManagementValue || '').trim();
+                    const confirmPassword = (this.passwordManagementConfirm || '').trim();
+
+                    if (!password) {
+                        this.showToast('Password baru wajib diisi', 'error');
+                        return;
+                    }
+                    if (password.length < 4) {
+                        this.showToast('Password minimal 4 karakter', 'error');
+                        return;
+                    }
+                    if (password.length > 100) {
+                        this.showToast('Password maksimal 100 karakter', 'error');
+                        return;
+                    }
+                    if (password !== confirmPassword) {
+                        this.showToast('Konfirmasi password tidak sama', 'error');
+                        return;
+                    }
+
+                    this.isLoading = true;
+                    try {
+                        const result = await this.apiRequest('/admin/set-password', {
+                            method: 'POST',
+                            headers: this.getAdminHeaders(true),
+                            body: JSON.stringify({ role, password })
+                        });
+
+                        if (result.ok) {
+                            this.passwordManagementValue = '';
+                            this.passwordManagementConfirm = '';
+                            this.showToast(result.data?.message || `Password ${role} berhasil diperbarui`, 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal memperbarui password');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal menghubungi server', 'error');
+                    } finally {
+                        this.isLoading = false;
                     }
                 },
                 
