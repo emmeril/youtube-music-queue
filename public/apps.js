@@ -55,6 +55,7 @@
                 adminToken: null,
                 adminSessionExpires: null,
                 showAdminLogin: false,
+                showPasswordManagementModal: false,
                 adminPassword: '',
                 passwordManagementRole: 'admin',
                 passwordManagementValue: '',
@@ -709,6 +710,7 @@
                         if (result.ok) {
                             this.passwordManagementValue = '';
                             this.passwordManagementConfirm = '';
+                            this.showPasswordManagementModal = false;
                             this.showToast(result.data?.message || `Password ${role} berhasil diperbarui`, 'success');
                         } else {
                             this.handleApiFailure(result, 'Gagal memperbarui password');
