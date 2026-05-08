@@ -116,15 +116,23 @@ function saveSearchDurationSettings(minSeconds, maxSeconds) {
   const nextMin = Math.min(normalizedMin, normalizedMax);
   const nextMax = Math.max(normalizedMin, normalizedMax);
 
-  window.localStorage.setItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY, String(nextMin));
-  window.localStorage.setItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY, String(nextMax));
+  try {
+    window.localStorage.setItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY, String(nextMin));
+    window.localStorage.setItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY, String(nextMax));
+  } catch (error) {
+    // Ignore storage failures and continue using runtime values.
+  }
 
   return { minSeconds: nextMin, maxSeconds: nextMax };
 }
 
 function resetSearchDurationSettings() {
-  window.localStorage.removeItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY);
-  window.localStorage.removeItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY);
+  try {
+    window.localStorage.removeItem(CONFIG.SEARCH_MIN_DURATION_STORAGE_KEY);
+    window.localStorage.removeItem(CONFIG.SEARCH_MAX_DURATION_STORAGE_KEY);
+  } catch (error) {
+    // Ignore storage failures and continue with defaults.
+  }
   return getSearchDurationSettings();
 }
 
@@ -187,7 +195,11 @@ async function detectServerUrl() {
 
   for (const candidate of candidateUrls) {
     if (await probeServerUrl(candidate)) {
-      localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, candidate);
+      try {
+        window.localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, candidate);
+      } catch (error) {
+        // Ignore storage failures and continue using detected URL in memory.
+      }
       return candidate;
     }
   }
@@ -497,9 +509,9 @@ class SongManager {
       return { title: 'Tidak diketahui', artist: 'Tidak diketahui' };
     }
 
-    const cleanedTitle = rawTitle.replace(/\s*[|•·–—-]\s*YouTube Music\s*$/i, '').trim();
+    const cleanedTitle = rawTitle.replace(/\s*[|\u2022\u00b7\u2013\u2014-]\s*YouTube Music\s*$/i, '').trim();
     const parts = cleanedTitle
-      .split(/\s*[-–—|•·]\s*/)
+      .split(/\s*[-\u2013\u2014|\u2022\u00b7]\s*/)
       .map((part) => part.trim())
       .filter(Boolean);
 
@@ -519,7 +531,7 @@ class SongManager {
   static cleanArtistText(text) {
     if (!text) return text;
 
-    const separators = ['•', '·', '|', '-', '–', '—'];
+    const separators = ['\u2022', '\u00b7', '|', '-', '\u2013', '\u2014'];
     for (const separator of separators) {
       if (text.includes(separator)) {
         text = text.split(separator)[0].trim();
@@ -1573,13 +1585,21 @@ class DebugPanel {
       }
 
       const normalizedUrl = rawValue.replace(/\/+$/, '');
-      localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, normalizedUrl);
+      try {
+        window.localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, normalizedUrl);
+      } catch (error) {
+        this.setStatus('Gagal menyimpan URL server ke storage', true);
+      }
       input.value = normalizedUrl;
       this.setStatus(`Server URL disimpan: ${normalizedUrl}`);
     });
 
     document.getElementById('debug-server-reset').addEventListener('click', () => {
-      localStorage.removeItem(CONFIG.SERVER_URL_STORAGE_KEY);
+      try {
+        window.localStorage.removeItem(CONFIG.SERVER_URL_STORAGE_KEY);
+      } catch (error) {
+        this.setStatus('Gagal mereset URL server dari storage', true);
+      }
       const input = document.getElementById('debug-server-url');
       if (input) input.value = CONFIG.SERVER_URL;
       this.setStatus(`Server URL kembali ke default: ${CONFIG.SERVER_URL}`);

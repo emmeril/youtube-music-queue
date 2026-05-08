@@ -254,11 +254,6 @@
                     }
                 },
 
-                sanitizeInput(value) {
-                    if (typeof value !== 'string') return '';
-                    return value.trim().replace(/\s+/g, ' ').replace(/[<>{}]/g, '');
-                },
-                
                 // Validasi input di frontend
                 validateInput() {
                     // Reset error states

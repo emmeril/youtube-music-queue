@@ -147,17 +147,6 @@ async function validateAdminPassword(password, requiredRole = null) {
   };
 }
 
-function isAdminSessionTokenValid(sessionToken) {
-  if (!sessionToken) return false;
-  const session = adminSessions.get(sessionToken);
-  if (!session) return false;
-  if (Date.now() > session.expires) {
-    adminSessions.delete(sessionToken);
-    return false;
-  }
-  return true;
-}
-
 function sendAdminDenied(res) {
   return sendError(
     res,
@@ -376,6 +365,14 @@ async function finalizeAndArchiveActiveRequest(status, extraFields = {}) {
   await addToHistory(songSnapshot, finalizedRequest);
 
   return finalizedRequest;
+}
+
+async function releasePlaybackAndFinalizeRequest(status, extraFields = {}) {
+  clearSongEndTimeout();
+  resetRequestLockState();
+  stopCurrentPlayback();
+  await finalizeAndArchiveActiveRequest(status, extraFields);
+  await saveRequests();
 }
 
 function scheduleAutoUnlock(lockDuration) {
@@ -894,6 +891,49 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     queueLimit: QUEUE_LIMIT,
     remainingSlots: QUEUE_LIMIT - state.requestQueue.length
   };
+}
+
+async function handleSongRequestEnqueue(req, res, options = {}) {
+  const {
+    position = 'last',
+    isPriority = false,
+    addedByAdmin = false,
+    successMessage = 'Request berhasil ditambahkan',
+    logLabel = 'Request added',
+    responseQueuePosition = null
+  } = options;
+
+  const { query } = req.body;
+  if (isBlank(query)) {
+    return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
+  }
+
+  const result = await addRequestToQueue(
+    query,
+    req.ip,
+    req.headers['user-agent'],
+    position,
+    isPriority,
+    addedByAdmin
+  );
+
+  if (!result.success) {
+    return sendQueueRequestFailure(res, result);
+  }
+
+  console.log(`[QUEUE] ${logLabel}: "${query}" -> "${result.request.query}"`);
+  logQueueCount();
+
+  return res.json({
+    success: true,
+    message: successMessage,
+    request: result.request,
+    warnings: result.warnings || [],
+    queuePosition: responseQueuePosition ?? result.queuePosition,
+    estimatedWait: result.estimatedWait,
+    queueLimit: result.queueLimit,
+    remainingSlots: result.remainingSlots
+  });
 }
 
 // ================= FUNGSI DATABASE =================
@@ -1472,11 +1512,7 @@ app.get('/get-request', async (req, res) => {
     
     if (state.requestQueue.length === 0) {
       if (state.activeRequest) {
-        clearSongEndTimeout();
-        resetRequestLockState();
-        stopCurrentPlayback();
-        await finalizeAndArchiveActiveRequest('completed', { completedAt: now });
-        await saveRequests();
+        await releasePlaybackAndFinalizeRequest('completed', { completedAt: now });
       }
       return res.status(204).send();
     }
@@ -1521,35 +1557,12 @@ app.get('/get-request', async (req, res) => {
 
 app.post('/request-song', async (req, res) => {
   try {
-    const { query } = req.body;
-    if (isBlank(query)) {
-      return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
-    }
-    
-    const result = await addRequestToQueue(
-      query, 
-      req.ip, 
-      req.headers['user-agent'], 
-      'last', 
-      false, 
-      false
-    );
-    
-    if (!result.success) {
-      return sendQueueRequestFailure(res, result);
-    }
-    console.log(`[QUEUE] Request added: "${query}" -> "${result.request.query}"`);
-    logQueueCount();
-    
-    res.json({
-      success: true,
-      message: 'Request berhasil ditambahkan',
-      request: result.request,
-      warnings: result.warnings || [],
-      queuePosition: result.queuePosition,
-      estimatedWait: result.estimatedWait,
-      queueLimit: result.queueLimit,
-      remainingSlots: result.remainingSlots
+    return handleSongRequestEnqueue(req, res, {
+      position: 'last',
+      isPriority: false,
+      addedByAdmin: false,
+      successMessage: 'Request berhasil ditambahkan',
+      logLabel: 'Request added'
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
@@ -1709,17 +1722,12 @@ app.post('/admin/reset-system-stats', requireSuperAdmin, async (req, res) => {
 app.post('/song-ended', async (req, res) => {
   try {
     const now = Date.now();
+    const activeRequestStartedAt = state.activeRequest?.startedAt;
     console.log('[PLAYBACK] Song ended notification received');
-    clearSongEndTimeout();
-    
-    resetRequestLockState();
-    stopCurrentPlayback();
-    await finalizeAndArchiveActiveRequest('completed', {
+    await releasePlaybackAndFinalizeRequest('completed', {
       completedAt: now,
-      actualDuration: state.activeRequest ? now - state.activeRequest.startedAt : undefined
+      actualDuration: activeRequestStartedAt ? now - activeRequestStartedAt : undefined
     });
-    
-    await saveRequests();
     res.json({ 
       success: true, 
       message: 'Lock released for next request', 
@@ -1772,13 +1780,7 @@ app.post('/skip-current', requireSuperAdmin, async (req, res) => {
   try {
     const skippedAt = Date.now();
     console.log('[PLAYBACK] Skip current request requested');
-    clearSongEndTimeout();
-    
-    resetRequestLockState();
-    stopCurrentPlayback();
-    await finalizeAndArchiveActiveRequest('skipped', { skippedAt });
-    
-    await saveRequests();
+    await releasePlaybackAndFinalizeRequest('skipped', { skippedAt });
     res.json({ 
       success: true, 
       message: 'Request skipped successfully', 
@@ -1794,13 +1796,7 @@ app.post('/force-next', requireSuperAdmin, async (req, res) => {
   try {
     const forceSkippedAt = Date.now();
     console.log('[PLAYBACK] Force next requested');
-    clearSongEndTimeout();
-    
-    resetRequestLockState();
-    stopCurrentPlayback();
-    await finalizeAndArchiveActiveRequest('force_skipped', { forceSkippedAt });
-    
-    await saveRequests();
+    await releasePlaybackAndFinalizeRequest('force_skipped', { forceSkippedAt });
     res.json({ success: true, message: 'Force skip completed', timestamp: forceSkippedAt });
   } catch (error) {
     return sendInternalError(res, req.path, error);
@@ -1923,35 +1919,13 @@ app.get('/stats', (req, res) => {
 
 app.post('/admin/request-first', requireAdmin, async (req, res) => {
   try {
-    const { query } = req.body;
-    if (isBlank(query)) {
-      return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
-    }
-    
-    const result = await addRequestToQueue(
-      query, 
-      req.ip, 
-      req.headers['user-agent'], 
-      'first', 
-      true, 
-      true
-    );
-    
-    if (!result.success) {
-      return sendQueueRequestFailure(res, result);
-    }
-    console.log(`[QUEUE] Priority request added (first position): "${query}" -> "${result.request.query}"`);
-    logQueueCount();
-    
-    res.json({
-      success: true,
-      message: 'Priority request berhasil ditambahkan di posisi pertama',
-      request: result.request,
-      warnings: result.warnings || [],
-      queuePosition: 1,
-      estimatedWait: result.estimatedWait,
-      queueLimit: result.queueLimit,
-      remainingSlots: result.remainingSlots
+    return handleSongRequestEnqueue(req, res, {
+      position: 'first',
+      isPriority: true,
+      addedByAdmin: true,
+      successMessage: 'Priority request berhasil ditambahkan di posisi pertama',
+      logLabel: 'Priority request added (first position)',
+      responseQueuePosition: 1
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
