@@ -927,7 +927,10 @@
                     return `${hours} jam ${remainingMinutes} menit`;
                 },
                 
-                calculateWaitTime(position) {
+                calculateWaitTime(position, item = null) {
+                    if (item && Number.isFinite(Number(item.estimatedWait))) {
+                        return Math.max(0, Math.round(Number(item.estimatedWait)));
+                    }
                     if (position <= 0) return 0;
                     
                     const currentRemaining = this.lockRemaining > 0 ? 
@@ -935,7 +938,7 @@
                     
                     const avgSongDuration = (this.currentSong.duration || 180000) / 60000;
                     
-                    return Math.round(currentRemaining + (position * avgSongDuration));
+                    return Math.round(currentRemaining + ((position - 1) * avgSongDuration));
                 },
                 
                 // Toast notification

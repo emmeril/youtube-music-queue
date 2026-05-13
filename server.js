@@ -398,8 +398,55 @@ function scheduleAutoUnlock(lockDuration) {
 
 function calculateWaitTime(position, currentRemainingSeconds = 0) {
   if (position <= 0) return 0;
-  const currentRemainingMinutes = Math.max(0, currentRemainingSeconds) / 60;
-  return Math.round(currentRemainingMinutes + (position * DEFAULT_AVG_SONG_DURATION_MINUTES));
+  const queueIndex = position - 1;
+  return calculateWaitTimeByQueueIndex(queueIndex, currentRemainingSeconds);
+}
+
+function estimateRequestDurationMs(request) {
+  if (!request || typeof request !== 'object') return 180000;
+
+  const directDuration = Number(request.duration || request.estimatedDuration || 0);
+  if (Number.isFinite(directDuration) && directDuration > 0) {
+    return normalizeDurationMs(directDuration, 180000);
+  }
+
+  const recentMatches = state.history
+    .filter((item) => item?.request && isLikelySameSongQuery(item.request.query || '', request.query || ''))
+    .slice(0, 10)
+    .map((item) => normalizeDurationMs(item.song?.duration || item.duration, 0))
+    .filter((duration) => duration > 0);
+
+  if (recentMatches.length > 0) {
+    const average = recentMatches.reduce((sum, value) => sum + value, 0) / recentMatches.length;
+    return normalizeDurationMs(average, 180000);
+  }
+
+  return normalizeDurationMs(state.currentSong?.duration, 180000);
+}
+
+function calculateWaitTimeByQueueIndex(queueIndex, currentRemainingSeconds = 0) {
+  if (queueIndex < 0) return 0;
+
+  const currentRemainingMs = Math.max(0, Number(currentRemainingSeconds) || 0) * 1000;
+  const waitMsBeforeThisRequest = state.requestQueue
+    .slice(0, queueIndex)
+    .reduce((total, request) => total + estimateRequestDurationMs(request), 0);
+
+  return Math.round((currentRemainingMs + waitMsBeforeThisRequest) / 60000);
+}
+
+function buildQueueWithEstimatedWait(currentRemainingSeconds = 0) {
+  return state.requestQueue.map((req, index) => {
+    const estimatedWait = calculateWaitTimeByQueueIndex(index, currentRemainingSeconds);
+    const estimatedDurationMs = estimateRequestDurationMs(req);
+    return {
+      ...req,
+      position: index + 1,
+      estimatedDurationMs,
+      estimatedWait,
+      estimatedWaitFormatted: formatWaitTime(estimatedWait * 60)
+    };
+  });
 }
 
 function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
@@ -1813,12 +1860,7 @@ app.get('/requests', (req, res) => {
   const { isLocked, lockRemaining } = getLockState();
   const queueMeta = getQueueMeta();
   const remainingSeconds = isLocked ? Math.ceil(lockRemaining / 1000) : 0;
-  const requestsWithWait = state.requestQueue.map((req, index) => ({
-    ...req,
-    position: index + 1,
-    estimatedWait: calculateWaitTime(index + 1, remainingSeconds),
-    estimatedWaitFormatted: formatWaitTime(calculateWaitTime(index + 1, remainingSeconds) * 60)
-  }));
+  const requestsWithWait = buildQueueWithEstimatedWait(remainingSeconds);
   res.json({
     activeRequest: state.activeRequest,
     queue: requestsWithWait,
@@ -2017,9 +2059,9 @@ app.get('/queue-info', (req, res) => {
   const { isLocked, lockRemaining } = getLockState(now);
   const queueMeta = getQueueMeta();
   const remainingSeconds = isLocked ? Math.ceil(lockRemaining / 1000) : 0;
-  
-  let totalQueueMinutes = state.requestQueue.length * DEFAULT_AVG_SONG_DURATION_MINUTES;
-  if (isLocked) totalQueueMinutes += remainingSeconds / 60;
+  const queueWithEstimate = buildQueueWithEstimatedWait(remainingSeconds);
+  const totalQueuedDurationMs = queueWithEstimate.reduce((sum, item) => sum + (item.estimatedDurationMs || 0), 0);
+  const totalQueueMinutes = Math.round(((remainingSeconds * 1000) + totalQueuedDurationMs) / 6000) / 10;
   
   res.json({
     isLocked,
@@ -2028,11 +2070,11 @@ app.get('/queue-info', (req, res) => {
     remainingFormatted: formatWaitTime(remainingSeconds),
     currentRequest: state.activeRequest,
     currentSong: state.currentSong,
-    queue: getQueueWithPosition(),
+    queue: queueWithEstimate,
     queueLength: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
     randomQueue: getRandomQueueMeta(),
-    totalQueueTime: Math.round(totalQueueMinutes * 10) / 10,
+    totalQueueTime: totalQueueMinutes,
     ...queueMeta
   });
 });

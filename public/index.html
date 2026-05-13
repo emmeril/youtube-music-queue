@@ -635,7 +635,7 @@
                                 </template>
 
                                 <div class="text-sm text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center min-w-[70px]">
-                                    <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
+                                    <span x-text="'~' + calculateWaitTime(index + 1, item) + 'm'"></span>
                                 </div>
                                 
                                 <!-- Tombol Hapus (Hanya Super Admin) -->
@@ -697,7 +697,7 @@
                         <!-- Actions Mobile -->
                         <div class="mobile-queue-actions">
                             <div class="text-xs text-gray-400 px-2 py-1 bg-gray-900/50 rounded text-center">
-                                <span x-text="'~' + calculateWaitTime(index + 1) + 'm'"></span>
+                                <span x-text="'~' + calculateWaitTime(index + 1, item) + 'm'"></span>
                             </div>
                             
                             <div class="mobile-action-buttons">
