@@ -442,6 +442,61 @@ function normalizeSongToken(value) {
     .trim();
 }
 
+function normalizeArtistToken(value) {
+  return normalizeSongToken(value)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshteinDistance(a, b) {
+  const s = a || '';
+  const t = b || '';
+  if (s === t) return 0;
+  if (s.length === 0) return t.length;
+  if (t.length === 0) return s.length;
+
+  const matrix = Array.from({ length: s.length + 1 }, () => Array(t.length + 1).fill(0));
+  for (let i = 0; i <= s.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= t.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= s.length; i++) {
+    for (let j = 1; j <= t.length; j++) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[s.length][t.length];
+}
+
+function areLikelySameArtist(artistA, artistB) {
+  const normalizedA = normalizeArtistToken(artistA);
+  const normalizedB = normalizeArtistToken(artistB);
+  if (!normalizedA || !normalizedB) return false;
+  if (normalizedA === normalizedB) return true;
+
+  const tokensA = normalizedA.split(' ').filter(Boolean);
+  const tokensB = normalizedB.split(' ').filter(Boolean);
+  if (tokensA.length > 0 && tokensB.length > 0) {
+    const setA = new Set(tokensA);
+    const setB = new Set(tokensB);
+    const smallerSet = setA.size <= setB.size ? setA : setB;
+    const largerSet = setA.size > setB.size ? setA : setB;
+    const isSubset = [...smallerSet].every((token) => largerSet.has(token));
+    if (isSubset) return true;
+  }
+
+  // Contoh typo kecil: "tulus" vs "tuluss"
+  const distance = levenshteinDistance(normalizedA, normalizedB);
+  const maxLen = Math.max(normalizedA.length, normalizedB.length);
+  const allowedDistance = maxLen <= 6 ? 1 : 2;
+  return distance <= allowedDistance;
+}
+
 function buildSongFingerprintFromQuery(query) {
   const parsed = parseSongQuery(query);
   const titleToken = normalizeSongToken(parsed.title);
@@ -864,7 +919,6 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
   const parsedQuery = parseSongQuery(queryWithOfficial);
-  const requestedArtist = normalizeComparisonText(parsedQuery.artist);
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -896,8 +950,8 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
 
   // Batas maksimal lagu per artis dalam antrian
   const sameArtistCount = state.requestQueue.filter((queuedRequest) => {
-    const queuedArtist = normalizeComparisonText(queuedRequest.artist || parseSongQuery(queuedRequest.query).artist);
-    return queuedArtist && queuedArtist === requestedArtist;
+    const queuedArtist = queuedRequest.artist || parseSongQuery(queuedRequest.query).artist;
+    return areLikelySameArtist(queuedArtist, parsedQuery.artist);
   }).length;
 
   if (sameArtistCount >= MAX_REQUESTS_PER_ARTIST) {
