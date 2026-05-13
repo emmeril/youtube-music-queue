@@ -192,6 +192,9 @@
                     if (errorCode === 'SONG_COOLDOWN_ACTIVE') {
                         return 'Lagu ini baru saja diputar. Tunggu sekitar 10 menit sebelum request ulang.';
                     }
+                    if (errorCode === 'TITLE_ARTIST_SWAPPED') {
+                        return this.getApiErrorMessage(apiResult?.data, 'Judul dan artis terdeteksi tertukar. Silakan tukar posisi inputnya.');
+                    }
 
                     return this.getApiErrorMessage(apiResult?.data, fallback);
                 },

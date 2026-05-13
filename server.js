@@ -577,6 +577,28 @@ function hasStrongSongTitleSignals(value) {
   return words.length >= 4;
 }
 
+function detectSwappedTitleArtist(queryWithOfficial) {
+  const parsed = parseSongQuery(queryWithOfficial);
+  const title = sanitizeInput(parsed.title);
+  const artist = sanitizeInput(parsed.artist);
+
+  if (!title || !artist) {
+    return { isSwapped: false };
+  }
+
+  const titleLooksLikeArtist = looksLikeArtistName(title) || looksLikePersonFullName(title);
+  const artistLooksLikeTitle = looksLikeSongTitle(artist) || hasStrongSongTitleSignals(artist);
+
+  if (titleLooksLikeArtist && artistLooksLikeTitle) {
+    return {
+      isSwapped: true,
+      suggestedQuery: `${artist} - ${title}`
+    };
+  }
+
+  return { isSwapped: false };
+}
+
 function looksLikePersonFullName(value) {
   const cleaned = sanitizeInput(value);
   if (!cleaned) return false;
@@ -602,6 +624,9 @@ function isLikelySingleWordSongTitle(value) {
 }
 
 function classifyQueueRequestError(error = '') {
+  if (error.includes('tertukar')) {
+    return { status: 400, code: 'TITLE_ARTIST_SWAPPED' };
+  }
   if (error.includes('penuh')) {
     return { status: 429, code: 'QUEUE_FULL' };
   }
@@ -943,6 +968,19 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
   const parsedQuery = parseSongQuery(queryWithOfficial);
+
+  const swapCheck = detectSwappedTitleArtist(queryWithOfficial);
+  if (swapCheck.isSwapped) {
+    return {
+      success: false,
+      error: `Format request terdeteksi tertukar. Coba gunakan: "${swapCheck.suggestedQuery}"`,
+      details: [
+        'Judul dan artis terdeteksi kemungkinan tertukar',
+        `Saran format: ${swapCheck.suggestedQuery}`
+      ],
+      suggestedQuery: swapCheck.suggestedQuery
+    };
+  }
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
