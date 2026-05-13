@@ -448,6 +448,16 @@ function normalizeArtistToken(value) {
     .trim();
 }
 
+function tokenizeArtistName(value) {
+  const normalized = normalizeArtistToken(value);
+  if (!normalized) return [];
+  const noiseWords = new Set(['the']);
+  return normalized
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !noiseWords.has(token));
+}
+
 function levenshteinDistance(a, b) {
   const s = a || '';
   const t = b || '';
@@ -479,21 +489,26 @@ function areLikelySameArtist(artistA, artistB) {
   if (!normalizedA || !normalizedB) return false;
   if (normalizedA === normalizedB) return true;
 
-  const tokensA = normalizedA.split(' ').filter(Boolean);
-  const tokensB = normalizedB.split(' ').filter(Boolean);
+  const tokensA = tokenizeArtistName(artistA);
+  const tokensB = tokenizeArtistName(artistB);
   if (tokensA.length > 0 && tokensB.length > 0) {
     const setA = new Set(tokensA);
     const setB = new Set(tokensB);
-    const smallerSet = setA.size <= setB.size ? setA : setB;
-    const largerSet = setA.size > setB.size ? setA : setB;
-    const isSubset = [...smallerSet].every((token) => largerSet.has(token));
-    if (isSubset) {
-      const smallerTokens = [...smallerSet];
-      const singleTokenSubset = smallerTokens.length === 1;
-      const singleTokenLength = singleTokenSubset ? smallerTokens[0].length : 0;
+    const sharedTokens = [...setA].filter((token) => setB.has(token));
 
-      // Hindari false-positive untuk token tunggal terlalu pendek/generik (mis. "ari").
-      if (!singleTokenSubset || singleTokenLength >= 5) {
+    if (sharedTokens.length > 0) {
+      const smallerCount = Math.min(setA.size, setB.size);
+      const largerCount = Math.max(setA.size, setB.size);
+      const coverageSmaller = sharedTokens.length / smallerCount;
+      const coverageLarger = sharedTokens.length / largerCount;
+
+      // "jungkook" <-> "jeon jungkook": smaller=1, larger=2, coverageLarger=0.5
+      if (smallerCount === 1) {
+        return coverageLarger >= 0.5;
+      }
+
+      // Untuk nama multi-kata, butuh overlap kuat.
+      if (coverageSmaller >= 1 || (coverageSmaller >= 0.67 && coverageLarger >= 0.5)) {
         return true;
       }
     }
