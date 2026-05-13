@@ -434,6 +434,27 @@ function normalizeComparisonText(value) {
   return sanitizeInput(value).toLowerCase();
 }
 
+function normalizeSongToken(value) {
+  return normalizeComparisonText(value)
+    .replace(/\b(feat\.?|ft\.?|official|lyrics?|lirik|video|audio|remix|cover|live|version)\b/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildSongFingerprintFromQuery(query) {
+  const parsed = parseSongQuery(query);
+  const titleToken = normalizeSongToken(parsed.title);
+  const artistToken = normalizeSongToken(parsed.artist);
+  const fallbackToken = normalizeSongToken(query);
+
+  if (titleToken && artistToken) {
+    return `${titleToken}::${artistToken}`;
+  }
+
+  return titleToken || fallbackToken;
+}
+
 function looksLikeArtistName(value) {
   const cleaned = sanitizeInput(value);
   if (!cleaned || cleaned.length > 60) return false;
@@ -833,6 +854,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
   const parsedQuery = parseSongQuery(queryWithOfficial);
   const requestedArtist = normalizeComparisonText(parsedQuery.artist);
+  const requestedFingerprint = buildSongFingerprintFromQuery(queryWithOfficial);
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -840,21 +862,32 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   }
   
   // Cek duplikat di antrian
-  const isDuplicate = state.requestQueue.some(req => req.query.toLowerCase() === queryWithOfficial.toLowerCase());
+  const isDuplicate = state.requestQueue.some((req) => {
+    const queuedFingerprint = buildSongFingerprintFromQuery(req.query);
+    return req.query.toLowerCase() === queryWithOfficial.toLowerCase() || queuedFingerprint === requestedFingerprint;
+  });
   if (isDuplicate) {
-    return { success: false, error: 'Lagu sudah ada dalam antrian' };
+    return { success: false, error: 'Lagu sudah ada atau sangat mirip dalam antrian' };
   }
   
   // Cek duplikat dengan lagu yang sedang diputar
-  if (state.activeRequest && state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase()) {
-    return { success: false, error: 'Lagu sedang diputar' };
+  if (state.activeRequest) {
+    const activeFingerprint = buildSongFingerprintFromQuery(state.activeRequest.query);
+    if (
+      state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase() ||
+      activeFingerprint === requestedFingerprint
+    ) {
+      return { success: false, error: 'Lagu sedang diputar atau sangat mirip' };
+    }
   }
   
   // Cek riwayat 10 menit terakhir
   const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-  const recentDuplicate = state.history.some(item => 
-    item.request && item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() && item.timestamp > tenMinutesAgo
-  );
+  const recentDuplicate = state.history.some((item) => {
+    if (!item.request || item.timestamp <= tenMinutesAgo) return false;
+    const historyFingerprint = buildSongFingerprintFromQuery(item.request.query || '');
+    return item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() || historyFingerprint === requestedFingerprint;
+  });
   if (recentDuplicate) {
     return { success: false, error: 'Lagu ini baru saja diputar. Tunggu 10 menit.', cooldown: '10 menit' };
   }

@@ -181,6 +181,18 @@
                     if (apiResult?.status === 0) {
                         return 'Server tidak terjangkau. Periksa koneksi atau coba lagi.';
                     }
+
+                    const errorCode = this.getApiErrorCode(apiResult?.data);
+                    if (errorCode === 'DUPLICATE_QUEUE_REQUEST') {
+                        return 'Lagu yang sama atau sangat mirip sudah ada di antrian.';
+                    }
+                    if (errorCode === 'SONG_ALREADY_PLAYING') {
+                        return 'Lagu yang sama atau sangat mirip sedang diputar.';
+                    }
+                    if (errorCode === 'SONG_COOLDOWN_ACTIVE') {
+                        return 'Lagu ini baru saja diputar. Tunggu sekitar 10 menit sebelum request ulang.';
+                    }
+
                     return this.getApiErrorMessage(apiResult?.data, fallback);
                 },
 
