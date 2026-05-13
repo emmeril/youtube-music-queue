@@ -487,7 +487,16 @@ function areLikelySameArtist(artistA, artistB) {
     const smallerSet = setA.size <= setB.size ? setA : setB;
     const largerSet = setA.size > setB.size ? setA : setB;
     const isSubset = [...smallerSet].every((token) => largerSet.has(token));
-    if (isSubset) return true;
+    if (isSubset) {
+      const smallerTokens = [...smallerSet];
+      const singleTokenSubset = smallerTokens.length === 1;
+      const singleTokenLength = singleTokenSubset ? smallerTokens[0].length : 0;
+
+      // Hindari false-positive untuk token tunggal terlalu pendek/generik (mis. "ari").
+      if (!singleTokenSubset || singleTokenLength >= 5) {
+        return true;
+      }
+    }
   }
 
   // Contoh typo kecil: "tulus" vs "tuluss"
