@@ -446,13 +446,24 @@ function buildSongFingerprintFromQuery(query) {
   const parsed = parseSongQuery(query);
   const titleToken = normalizeSongToken(parsed.title);
   const artistToken = normalizeSongToken(parsed.artist);
-  const fallbackToken = normalizeSongToken(query);
+  if (!titleToken || !artistToken) return null;
+  return `${titleToken}::${artistToken}`;
+}
 
-  if (titleToken && artistToken) {
-    return `${titleToken}::${artistToken}`;
-  }
+function isLikelySameSongQuery(queryA, queryB) {
+  const normalizedA = normalizeComparisonText(queryA);
+  const normalizedB = normalizeComparisonText(queryB);
+  if (!normalizedA || !normalizedB) return false;
 
-  return titleToken || fallbackToken;
+  // Tetap blokir identik persis (case-insensitive) seperti perilaku lama.
+  if (normalizedA === normalizedB) return true;
+
+  // Fuzzy duplicate hanya dipakai saat kedua sisi punya title + artist yang jelas.
+  const fingerprintA = buildSongFingerprintFromQuery(queryA);
+  const fingerprintB = buildSongFingerprintFromQuery(queryB);
+  if (!fingerprintA || !fingerprintB) return false;
+
+  return fingerprintA === fingerprintB;
 }
 
 function looksLikeArtistName(value) {
@@ -854,7 +865,6 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
   const parsedQuery = parseSongQuery(queryWithOfficial);
   const requestedArtist = normalizeComparisonText(parsedQuery.artist);
-  const requestedFingerprint = buildSongFingerprintFromQuery(queryWithOfficial);
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -862,21 +872,14 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   }
   
   // Cek duplikat di antrian
-  const isDuplicate = state.requestQueue.some((req) => {
-    const queuedFingerprint = buildSongFingerprintFromQuery(req.query);
-    return req.query.toLowerCase() === queryWithOfficial.toLowerCase() || queuedFingerprint === requestedFingerprint;
-  });
+  const isDuplicate = state.requestQueue.some((req) => isLikelySameSongQuery(req.query, queryWithOfficial));
   if (isDuplicate) {
     return { success: false, error: 'Lagu sudah ada atau sangat mirip dalam antrian' };
   }
   
   // Cek duplikat dengan lagu yang sedang diputar
   if (state.activeRequest) {
-    const activeFingerprint = buildSongFingerprintFromQuery(state.activeRequest.query);
-    if (
-      state.activeRequest.query.toLowerCase() === queryWithOfficial.toLowerCase() ||
-      activeFingerprint === requestedFingerprint
-    ) {
+    if (isLikelySameSongQuery(state.activeRequest.query, queryWithOfficial)) {
       return { success: false, error: 'Lagu sedang diputar atau sangat mirip' };
     }
   }
@@ -885,8 +888,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
   const recentDuplicate = state.history.some((item) => {
     if (!item.request || item.timestamp <= tenMinutesAgo) return false;
-    const historyFingerprint = buildSongFingerprintFromQuery(item.request.query || '');
-    return item.request.query.toLowerCase() === queryWithOfficial.toLowerCase() || historyFingerprint === requestedFingerprint;
+    return isLikelySameSongQuery(item.request.query || '', queryWithOfficial);
   });
   if (recentDuplicate) {
     return { success: false, error: 'Lagu ini baru saja diputar. Tunggu 10 menit.', cooldown: '10 menit' };
