@@ -402,7 +402,41 @@ function calculateWaitTime(position, currentRemainingSeconds = 0) {
   return calculateWaitTimeByQueueIndex(queueIndex, currentRemainingSeconds);
 }
 
-function estimateRequestDurationMs(request) {
+function buildDurationLookupFromHistory() {
+  const durationsByQuery = new Map();
+  const durationsByFingerprint = new Map();
+
+  for (const item of state.history) {
+    if (!item?.request?.query) continue;
+
+    const duration = normalizeDurationMs(item.song?.duration || item.duration, 0);
+    if (duration <= 0) continue;
+
+    const normalizedQuery = normalizeComparisonText(item.request.query);
+    if (normalizedQuery) {
+      const queryBucket = durationsByQuery.get(normalizedQuery) || [];
+      if (queryBucket.length < 10) queryBucket.push(duration);
+      durationsByQuery.set(normalizedQuery, queryBucket);
+    }
+
+    const fingerprint = buildSongFingerprintFromQuery(item.request.query);
+    if (fingerprint) {
+      const fingerprintBucket = durationsByFingerprint.get(fingerprint) || [];
+      if (fingerprintBucket.length < 10) fingerprintBucket.push(duration);
+      durationsByFingerprint.set(fingerprint, fingerprintBucket);
+    }
+  }
+
+  return { durationsByQuery, durationsByFingerprint };
+}
+
+function getAverageDurationFromBucket(bucket) {
+  if (!Array.isArray(bucket) || bucket.length === 0) return 0;
+  const average = bucket.reduce((sum, value) => sum + value, 0) / bucket.length;
+  return normalizeDurationMs(average, 0);
+}
+
+function estimateRequestDurationMs(request, durationLookup = null) {
   if (!request || typeof request !== 'object') return 180000;
 
   const directDuration = Number(request.duration || request.estimatedDuration || 0);
@@ -410,15 +444,14 @@ function estimateRequestDurationMs(request) {
     return normalizeDurationMs(directDuration, 180000);
   }
 
-  const recentMatches = state.history
-    .filter((item) => item?.request && isLikelySameSongQuery(item.request.query || '', request.query || ''))
-    .slice(0, 10)
-    .map((item) => normalizeDurationMs(item.song?.duration || item.duration, 0))
-    .filter((duration) => duration > 0);
+  const normalizedQuery = normalizeComparisonText(request.query || '');
+  const fingerprint = buildSongFingerprintFromQuery(request.query || '');
+  if (durationLookup) {
+    const byQuery = getAverageDurationFromBucket(durationLookup.durationsByQuery.get(normalizedQuery));
+    if (byQuery > 0) return normalizeDurationMs(byQuery, 180000);
 
-  if (recentMatches.length > 0) {
-    const average = recentMatches.reduce((sum, value) => sum + value, 0) / recentMatches.length;
-    return normalizeDurationMs(average, 180000);
+    const byFingerprint = getAverageDurationFromBucket(durationLookup.durationsByFingerprint.get(fingerprint));
+    if (byFingerprint > 0) return normalizeDurationMs(byFingerprint, 180000);
   }
 
   return normalizeDurationMs(state.currentSong?.duration, 180000);
@@ -436,9 +469,15 @@ function calculateWaitTimeByQueueIndex(queueIndex, currentRemainingSeconds = 0) 
 }
 
 function buildQueueWithEstimatedWait(currentRemainingSeconds = 0) {
+  const durationLookup = buildDurationLookupFromHistory();
+  const currentRemainingMs = Math.max(0, Number(currentRemainingSeconds) || 0) * 1000;
+  let accumulatedWaitMs = currentRemainingMs;
+
   return state.requestQueue.map((req, index) => {
-    const estimatedWait = calculateWaitTimeByQueueIndex(index, currentRemainingSeconds);
-    const estimatedDurationMs = estimateRequestDurationMs(req);
+    const estimatedDurationMs = estimateRequestDurationMs(req, durationLookup);
+    const estimatedWait = Math.round(accumulatedWaitMs / 60000);
+    accumulatedWaitMs += estimatedDurationMs;
+
     return {
       ...req,
       position: index + 1,
