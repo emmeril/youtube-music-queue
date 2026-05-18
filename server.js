@@ -2093,22 +2093,6 @@ app.delete('/clear-requests', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.delete('/admin/clear-history', requireSuperAdmin, async (req, res) => {
-  try {
-    const clearedCount = state.history.length;
-    state.history = [];
-    await saveHistory();
-    console.log(`[HISTORY] Cleared ${clearedCount} history items by Super Admin`);
-    res.json({
-      success: true,
-      message: 'Riwayat berhasil dihapus',
-      clearedCount
-    });
-  } catch (error) {
-    return sendInternalError(res, req.path, error);
-  }
-});
-
 app.get('/queue-info', (req, res) => {
   const now = Date.now();
   const { isLocked, lockRemaining } = getLockState(now);

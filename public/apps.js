@@ -532,31 +532,6 @@
                     }
                 },
 
-                async clearHistory() {
-                    if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa menghapus riwayat', 'error');
-                        return;
-                    }
-
-                    if (!confirm('Hapus semua riwayat pemutaran?')) return;
-
-                    try {
-                        const result = await this.apiRequest('/admin/clear-history', {
-                            method: 'DELETE',
-                            headers: this.getAdminHeaders()
-                        });
-
-                        if (result.ok) {
-                            await this.loadData();
-                            this.showToast(`Riwayat dihapus (${result.data?.clearedCount || 0} item)`, 'success');
-                        } else {
-                            this.handleApiFailure(result, 'Gagal menghapus riwayat');
-                        }
-                    } catch (error) {
-                        this.showToast('Gagal menghapus riwayat', 'error');
-                    }
-                },
-                
                 // Move request up (Admin & Super Admin)
                 async moveRequestUp(requestId, currentIndex) {
                     if (!this.isAdmin) {
