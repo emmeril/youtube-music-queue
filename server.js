@@ -1991,7 +1991,9 @@ app.post('/verify-match', (req, res) => {
     (requestArtist.length > 0 && songArtist.includes(requestArtist)) ||
     requestQuery.includes(songArtist)
   );
-  const isMatch = titleMatch || artistMatch;
+  const isMatch = requestArtist.length > 0
+    ? titleMatch && artistMatch
+    : titleMatch;
   
   const matchData = {
     isMatch,

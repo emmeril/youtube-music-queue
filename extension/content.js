@@ -787,7 +787,7 @@ class SearchAutoplay {
       return;
     }
 
-    if (this.attempts >= 4) {
+    if (this.attempts >= 4 && !RequestProcessor.getSearchTarget()?.titleTokens?.length) {
       const fallbackCandidate = this.findFallbackPlayElement();
       if (fallbackCandidate?.playElement) {
         this.log('No strong candidate yet, using fallback play element');
@@ -849,6 +849,9 @@ class SearchAutoplay {
       if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
         continue;
       }
+      if (!this.isCandidateTargetMatch(rowMeta, target)) {
+        continue;
+      }
 
       const score = this.scoreRow(rowMeta, durationSeconds, target);
       candidates.push({ playElement, score, durationSeconds, rowMeta, candidateKey });
@@ -861,7 +864,7 @@ class SearchAutoplay {
     this.log(
       `Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
     );
-    return best.score >= 4 ? best : undefined;
+    return best.score >= this.getMinimumCandidateScore(target) ? best : undefined;
   }
 
   findPlayButton(row) {
@@ -982,6 +985,65 @@ class SearchAutoplay {
     return [meta?.title || '', meta?.subtitle || '', durationSeconds || 0].join('|');
   }
 
+  getMinimumCandidateScore(target) {
+    if (target?.titleTokens?.length) {
+      return target.artistTokens.length ? 14 : 10;
+    }
+    return 4;
+  }
+
+  getMatchCoverage(text, tokens = []) {
+    if (!tokens.length) return 1;
+    return this.countTokenMatches(text, tokens) / tokens.length;
+  }
+
+  getRequiredCoverage(tokens = []) {
+    if (tokens.length <= 1) return 1;
+    if (tokens.length === 2) return 0.75;
+    return 0.67;
+  }
+
+  isCandidateTargetMatch(meta, target) {
+    if (!target?.titleTokens?.length) return true;
+
+    const titleText = meta?.title || meta?.text || '';
+    const combinedText = `${meta?.title || ''} ${meta?.subtitle || ''} ${meta?.text || ''}`.trim();
+    const titleCoverage = this.getMatchCoverage(titleText, target.titleTokens);
+    if (titleCoverage < this.getRequiredCoverage(target.titleTokens)) {
+      return false;
+    }
+
+    if (target.artistTokens.length > 0) {
+      const artistCoverage = this.getMatchCoverage(combinedText, target.artistTokens);
+      if (artistCoverage < this.getRequiredCoverage(target.artistTokens)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  isActualPlaybackMatchingTarget(songInfo, target = RequestProcessor.getSearchTarget()) {
+    if (!target?.titleTokens?.length || !songInfo) return true;
+
+    const actualTitle = RequestProcessor.normalizeText(songInfo.title || '');
+    const actualArtist = RequestProcessor.normalizeText(songInfo.artist || '');
+    const combinedActual = `${actualTitle} ${actualArtist}`.trim();
+    const titleCoverage = this.getMatchCoverage(actualTitle || combinedActual, target.titleTokens);
+    if (titleCoverage < this.getRequiredCoverage(target.titleTokens)) {
+      return false;
+    }
+
+    if (target.artistTokens.length > 0) {
+      const artistCoverage = this.getMatchCoverage(combinedActual, target.artistTokens);
+      if (artistCoverage < this.getRequiredCoverage(target.artistTokens)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   scoreRow(meta, durationSeconds, target) {
     if (!this.isCandidateAllowedForSearch(meta.text, durationSeconds)) {
       return -100;
@@ -1084,6 +1146,20 @@ class SearchAutoplay {
         return;
       }
 
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const songInfo = SongManager.extractSongInfo();
+      if (!this.isActualPlaybackMatchingTarget(songInfo)) {
+        const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
+        if (candidateKey) {
+          this.rejectedCandidateKeys.add(candidateKey);
+        }
+
+        this.log(`Rejected playing candidate due to metadata mismatch: "${songInfo.title}" - "${songInfo.artist}"`);
+        this.pendingCandidate = null;
+        await this.retrySearchAfterRejectedCandidate(video);
+        return;
+      }
+
       this.log('Playback verified successfully');
       this.pendingCandidate = null;
       RequestProcessor.clearPendingSearchUrl();
@@ -1098,6 +1174,33 @@ class SearchAutoplay {
       this.attempts = 0;
       this.start();
     }
+  }
+
+  async retrySearchAfterRejectedCandidate(video) {
+    this.stop();
+
+    try {
+      if (video) {
+        video.pause();
+        video.currentTime = 0;
+      }
+    } catch (error) {
+      this.error('Failed to reset mismatched playback', error);
+    }
+
+    DebugPanel.setStatus('Hasil tidak cocok, mencari kandidat lain');
+
+    if (!this.isSearchPage(window.location.href)) {
+      const pendingSearchUrl = state.pendingSearchUrl || getPendingSearchUrl();
+      if (pendingSearchUrl) {
+        window.location.href = pendingSearchUrl;
+      } else if (window.history.length > 1) {
+        window.history.back();
+      }
+    }
+
+    this.attempts = 0;
+    setTimeout(() => this.start(), 1200);
   }
 
   async rejectCurrentPlayback(video) {
@@ -1127,6 +1230,18 @@ class SearchAutoplay {
   tryAlternativeMethods() {
     this.log('Trying alternative search methods...');
     this.stop();
+
+    if (RequestProcessor.getSearchTarget()?.titleTokens?.length) {
+      this.log('Alternative methods skipped because they cannot guarantee the requested song');
+      DebugPanel.setStatus('Tidak menemukan hasil cocok, lanjut request berikutnya', true);
+      ServerAPI.skipCurrent()
+        .then(() => {
+          RequestProcessor.clearPendingSearchUrl();
+          setTimeout(() => RequestProcessor.checkRequests(), 500);
+        })
+        .catch((error) => this.error('Failed to release unmatched request', error));
+      return;
+    }
 
     const links = document.querySelectorAll('a[href*="/watch"]');
     for (const link of links) {
