@@ -3,22 +3,23 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { Sequelize, DataTypes } = require('sequelize');
 
 const app = express();
-const PORT = 4786;
+const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
+const PORT = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 4786;
 const APP_VERSION = '2.3.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
 const MAX_REQUESTS_PER_ARTIST = 3;
-const DEFAULT_ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || 'Monse@2026';
-const DEFAULT_SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Kucing@123';
+const ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || null;
+const SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
 const FAIR_RANDOM_POOL_SIZE = 20;
-const DEFAULT_AVG_SONG_DURATION_MINUTES = 3;
 const DEFAULT_UNKNOWN_TITLE = 'Tidak ada lagu';
 const DEFAULT_UNKNOWN_LABEL = 'Tidak diketahui';
 const DEFAULT_UNKNOWN = 'unknown';
@@ -31,7 +32,7 @@ let lastUpdateAt = 0;
 // Pastikan direktori data ada
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir);
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
 // ================= INISIALISASI SEQUELIZE =================
@@ -124,9 +125,9 @@ async function validateAdminPassword(password, requiredRole = null) {
   const adminCredential = await getAdminCredential('admin');
 
   let role = null;
-  if (superCredential && normalizedPassword === superCredential.password) {
+  if (await validateCredentialPassword('super', superCredential, normalizedPassword)) {
     role = 'super';
-  } else if (adminCredential && normalizedPassword === adminCredential.password) {
+  } else if (await validateCredentialPassword('admin', adminCredential, normalizedPassword)) {
     role = 'admin';
   }
 
@@ -742,6 +743,19 @@ function sendQueueRequestFailure(res, result) {
   });
 }
 
+function validatePasswordPolicy(password, label) {
+  if (isBlank(password)) {
+    return { ok: false, status: 400, code: 'PASSWORD_REQUIRED', message: `Password ${label} diperlukan` };
+  }
+  if (password.length < 4) {
+    return { ok: false, status: 400, code: 'PASSWORD_TOO_SHORT', message: `Password ${label} minimal 4 karakter` };
+  }
+  if (password.length > 100) {
+    return { ok: false, status: 400, code: 'PASSWORD_TOO_LONG', message: `Password ${label} maksimal 100 karakter` };
+  }
+  return { ok: true };
+}
+
 function parseNonNegativeInt(value, fallback = 0) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed < 0) return fallback;
@@ -775,6 +789,38 @@ function buildUpdateSignature(payload) {
   return [title, artist, duration, isNewSong, url].join('|');
 }
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function isHashedPassword(value) {
+  return typeof value === 'string' && value.startsWith('scrypt$');
+}
+
+function timingSafeStringEqual(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function verifyPassword(password, storedPassword) {
+  if (isBlank(password) || isBlank(storedPassword)) return false;
+  if (!isHashedPassword(storedPassword)) {
+    return timingSafeStringEqual(password, storedPassword);
+  }
+
+  const [, salt, storedHash] = storedPassword.split('$');
+  if (!salt || !storedHash) return false;
+
+  const candidateHash = crypto.scryptSync(password, salt, 64);
+  const storedHashBuffer = Buffer.from(storedHash, 'hex');
+  if (storedHashBuffer.length !== candidateHash.length) return false;
+  return crypto.timingSafeEqual(candidateHash, storedHashBuffer);
+}
+
 async function getAdminCredential(role = 'admin') {
   return AdminCredential.findByPk(role);
 }
@@ -788,21 +834,32 @@ async function upsertAdminCredential(role, password) {
   const normalizedPassword = normalizeInput(password);
   return AdminCredential.upsert({
     role,
-    password: normalizedPassword,
+    password: hashPassword(normalizedPassword),
     updatedAtMs: Date.now()
   });
 }
 
-async function ensureDefaultAdminCredentials() {
+async function validateCredentialPassword(role, credential, password) {
+  if (!credential || !verifyPassword(password, credential.password)) return false;
+
+  if (!isHashedPassword(credential.password)) {
+    await upsertAdminCredential(role, password);
+    console.log(`[AUTH] Upgraded ${role} password storage to scrypt hash`);
+  }
+
+  return true;
+}
+
+async function seedEnvAdminCredentials() {
   const credentialsToSeed = [
-    { role: 'admin', password: DEFAULT_ADMIN_DB_PASSWORD },
-    { role: 'super', password: DEFAULT_SUPER_ADMIN_DB_PASSWORD }
-  ];
+    { role: 'admin', password: ADMIN_DB_PASSWORD },
+    { role: 'super', password: SUPER_ADMIN_DB_PASSWORD }
+  ].filter((credential) => !isBlank(credential.password));
 
   for (const credential of credentialsToSeed) {
     if (await hasAdminCredential(credential.role)) continue;
     await upsertAdminCredential(credential.role, credential.password);
-    console.log(`[AUTH] Default ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential inserted into database`);
+    console.log(`[AUTH] ${credential.role === 'super' ? 'Super Admin' : 'Admin'} credential seeded from environment`);
   }
 }
 
@@ -1177,7 +1234,7 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
 async function loadData() {
   try {
     await sequelize.sync();
-    await ensureDefaultAdminCredentials();
+    await seedEnvAdminCredentials();
 
     // Load antrian
     const requests = await Request.findAll({ order: [['queueOrder', 'ASC']] });
@@ -1536,8 +1593,8 @@ app.post('/admin/login', async (req, res) => {
     }
 
     let role = null;
-    if (hasSuperAdminCredential && password === superCredential.password) role = 'super';
-    else if (hasAdminCredential && password === adminCredential.password) role = 'admin';
+    if (hasSuperAdminCredential && await validateCredentialPassword('super', superCredential, password)) role = 'super';
+    else if (hasAdminCredential && await validateCredentialPassword('admin', adminCredential, password)) role = 'admin';
     else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
 
     const token = generateId();
@@ -1591,14 +1648,9 @@ app.post('/admin/bootstrap-super-admin', async (req, res) => {
     }
 
     const password = normalizeInput(req.body?.password ?? '');
-    if (isBlank(password)) {
-      return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password Super Admin diperlukan');
-    }
-    if (password.length < 4) {
-      return sendError(res, 400, 'PASSWORD_TOO_SHORT', 'Password Super Admin minimal 4 karakter');
-    }
-    if (password.length > 100) {
-      return sendError(res, 400, 'PASSWORD_TOO_LONG', 'Password Super Admin maksimal 100 karakter');
+    const passwordValidation = validatePasswordPolicy(password, 'Super Admin');
+    if (!passwordValidation.ok) {
+      return sendError(res, passwordValidation.status, passwordValidation.code, passwordValidation.message);
     }
 
     await upsertAdminCredential('super', password);
@@ -1621,14 +1673,9 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
     }
 
     const password = normalizeInput(req.body?.password ?? '');
-    if (isBlank(password)) {
-      return sendError(res, 400, 'PASSWORD_REQUIRED', `Password ${role} diperlukan`);
-    }
-    if (password.length < 4) {
-      return sendError(res, 400, 'PASSWORD_TOO_SHORT', `Password ${role} minimal 4 karakter`);
-    }
-    if (password.length > 100) {
-      return sendError(res, 400, 'PASSWORD_TOO_LONG', `Password ${role} maksimal 100 karakter`);
+    const passwordValidation = validatePasswordPolicy(password, role);
+    if (!passwordValidation.ok) {
+      return sendError(res, passwordValidation.status, passwordValidation.code, passwordValidation.message);
     }
 
     await upsertAdminCredential(role, password);
