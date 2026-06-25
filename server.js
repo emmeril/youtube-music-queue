@@ -1113,17 +1113,13 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   const parsedQuery = parseSongQuery(queryWithOfficial);
 
   const swapCheck = detectSwappedTitleArtist(queryWithOfficial);
-  if (swapCheck.isSwapped) {
-    return {
-      success: false,
-      error: `Format request terdeteksi tertukar. Coba gunakan: "${swapCheck.suggestedQuery}"`,
-      details: [
-        'Judul dan artis terdeteksi kemungkinan tertukar',
-        `Saran format: ${swapCheck.suggestedQuery}`
-      ],
-      suggestedQuery: swapCheck.suggestedQuery
-    };
-  }
+  const warnings = swapCheck.isSwapped
+    ? [{
+        code: 'POSSIBLE_TITLE_ARTIST_SWAPPED',
+        message: 'Judul dan artis mungkin tertukar, tetapi request tetap ditambahkan.',
+        suggestedQuery: swapCheck.suggestedQuery
+      }]
+    : [];
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -1179,7 +1175,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
   return {
     success: true,
     request: newRequest,
-    warnings: [],
+    warnings,
     queuePosition,
     estimatedWait: calculateWaitTime(queuePosition, currentRemainingSeconds),
     queueLimit: QUEUE_LIMIT,
