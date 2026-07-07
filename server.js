@@ -16,6 +16,7 @@ const QUEUE_LIMIT = 100;
 const MAX_REQUESTS_PER_ARTIST = 3;
 const ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || null;
 const SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || null;
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
@@ -182,6 +183,37 @@ async function requireAdmin(req, res, next) {
   req.adminRole = validation.session.role;
   req.adminAuthMethod = validation.session.authMethod || 'session';
   next();
+}
+
+async function requireBridgeClient(req, res, next) {
+  const bridgeTokenHeader = normalizeInput(req.headers['x-bridge-token']);
+  if (!isBlank(BRIDGE_TOKEN) && !isBlank(bridgeTokenHeader) && timingSafeStringEqual(bridgeTokenHeader, BRIDGE_TOKEN)) {
+    req.bridgeAuthMethod = 'bridge-token';
+    return next();
+  }
+
+  const passwordHeader = req.headers['x-admin-password'];
+  const tokenHeader = req.headers['x-admin-token'];
+  const validation = passwordHeader
+    ? await validateAdminPassword(passwordHeader)
+    : validateAdminSession(tokenHeader, 'Bridge client');
+
+  if (!validation.ok) {
+    return validation.reason === 'expired'
+      ? sendAdminExpired(res)
+      : sendError(
+          res,
+          403,
+          'BRIDGE_AUTH_REQUIRED',
+          'Akses ditolak. Endpoint bridge memerlukan token atau kredensial admin.',
+          { requiresBridgeAuth: true }
+        );
+  }
+
+  req.adminRole = validation.session.role;
+  req.adminAuthMethod = validation.session.authMethod || 'session';
+  req.bridgeAuthMethod = req.adminAuthMethod;
+  return next();
 }
 
 function clearAdminSessionsByRole(role) {
@@ -390,7 +422,7 @@ function scheduleAutoUnlock(lockDuration) {
             .then(() => saveRequests())
             .catch((error) => console.error('Error archiving auto-completed request:', error));
         } else {
-          saveAppState(); // async, tidak perlu await
+          saveAppState().catch((error) => console.error('Error saving app state after auto-unlock:', error));
         }
       }
     }, lockDuration);
@@ -1502,6 +1534,7 @@ async function saveRequests() {
   } catch (error) {
     persistenceMetrics.requests.errors++;
     console.error('Error saving requests:', error);
+    throw error;
   }
 }
 
@@ -1523,6 +1556,7 @@ async function saveHistory() {
   } catch (error) {
     persistenceMetrics.history.errors++;
     console.error('Error saving history:', error);
+    throw error;
   }
 }
 
@@ -1544,6 +1578,7 @@ async function saveAppState() {
   } catch (error) {
     persistenceMetrics.appState.errors++;
     console.error('Error saving app state:', error);
+    throw error;
   }
 }
 
@@ -1690,7 +1725,7 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.post('/update', async (req, res) => {
+app.post('/update', requireBridgeClient, async (req, res) => {
   try {
     const { title, artist, duration, isNewSong, url } = req.body;
     const now = Date.now();
@@ -1777,7 +1812,7 @@ app.get('/status', (req, res) => {
   });
 });
 
-app.get('/get-request', async (req, res) => {
+app.get('/get-request', requireBridgeClient, async (req, res) => {
   try {
     const now = Date.now();
     if (now < state.requestLockUntil) {
@@ -1994,7 +2029,7 @@ app.post('/admin/reset-system-stats', requireSuperAdmin, async (req, res) => {
   }
 });
 
-app.post('/song-ended', async (req, res) => {
+app.post('/song-ended', requireBridgeClient, async (req, res) => {
   try {
     const now = Date.now();
     const activeRequestStartedAt = state.activeRequest?.startedAt;
@@ -2014,7 +2049,7 @@ app.post('/song-ended', async (req, res) => {
   }
 });
 
-app.post('/verify-match', (req, res) => {
+app.post('/verify-match', requireBridgeClient, (req, res) => {
   const { title, artist } = req.body;
   if (!state.activeRequest) {
     return res.json({ isMatch: false, reason: 'No active request' });

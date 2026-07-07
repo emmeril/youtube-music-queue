@@ -626,7 +626,7 @@ class SongManager {
 
       const response = await fetch(`${getServerUrl()}/update`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getServerHeaders(true),
         body: JSON.stringify(songData)
       });
 
@@ -658,7 +658,7 @@ class SongManager {
     try {
       const response = await fetch(`${getServerUrl()}/verify-match`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getServerHeaders(true),
         body: JSON.stringify(songInfo)
       });
 
@@ -1323,7 +1323,9 @@ class RequestProcessor {
     state.isProcessingRequest = true;
 
     try {
-      const response = await fetch(`${getServerUrl()}/get-request`);
+      const response = await fetch(`${getServerUrl()}/get-request`, {
+        headers: getServerHeaders()
+      });
 
       if (response.status === 423) {
         const data = await response.json();
@@ -1485,7 +1487,7 @@ class ServerAPI {
     try {
       const response = await fetch(`${getServerUrl()}/song-ended`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getServerHeaders(true),
         body: JSON.stringify({
           timestamp: Date.now(),
           url: window.location.href
