@@ -136,8 +136,13 @@
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .song-title {
-                -webkit-line-clamp: 1;
-                max-height: 1.4em;
+                display: block;
+                -webkit-line-clamp: unset;
+                -webkit-box-orient: unset;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-height: none;
                 font-size: 0.95rem;
             }
             .current-song-title {
@@ -224,6 +229,10 @@
         .mobile-queue-content {
             flex: 1;
             min-width: 0;
+        }
+        .mobile-queue-content .song-title {
+            width: 100%;
+            color: #fff;
         }
         .mobile-queue-meta {
             display: flex;
