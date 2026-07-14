@@ -146,8 +146,14 @@
                 font-size: 0.95rem;
             }
             .current-song-title {
-                -webkit-line-clamp: 1;
-                max-height: 1.5em;
+                display: block;
+                -webkit-line-clamp: unset;
+                -webkit-box-orient: unset;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-height: none;
+                width: 100%;
             }
             /* Perbaikan untuk antrian di mobile */
             .queue-item-mobile {
