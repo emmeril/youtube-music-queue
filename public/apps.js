@@ -1,7 +1,6 @@
         function app() {
             return {
                 // State
-                appVersion: '2.4.0',
                 currentSong: {
                     title: 'Tidak ada lagu',
                     artist: 'Tidak diketahui',
@@ -77,7 +76,7 @@
                         this.isPageVisible = !document.hidden;
                         if (this.isPageVisible) {
                             await this.loadData();
-                            await this.checkVersion();
+                            await this.loadServerFeatures();
                         }
                     });
 
@@ -103,8 +102,7 @@
                     
                     await this.loadData();
                     
-                    // Cek versi aplikasi
-                    await this.checkVersion();
+                    await this.loadServerFeatures();
                     
                     // Auto refresh data every 3 seconds
                     setInterval(async () => {
@@ -124,10 +122,10 @@
                         }
                     }, 60000);
                     
-                    // Cek versi aplikasi setiap 2 menit
+                    // Refresh status fitur server setiap 2 menit
                     setInterval(async () => {
                         if (!this.isPageVisible) return;
-                        await this.checkVersion();
+                        await this.loadServerFeatures();
                     }, 120000);
                 },
 
@@ -862,31 +860,15 @@
                     }
                 },
                 
-                // Check app version
-                async checkVersion() {
+                async loadServerFeatures() {
                     try {
                         const result = await this.apiRequest('/version');
                         if (result.ok) {
                             const data = result.data || {};
                             this.geminiNormalizationEnabled = Boolean(data.geminiNormalization?.enabled);
-                            const savedVersion = localStorage.getItem('appVersion');
-                            
-                            if (savedVersion && savedVersion !== data.version) {
-                                localStorage.setItem('appVersion', data.version);
-                                this.appVersion = data.version;
-                                // Versi berubah, reload halaman
-                                this.showToast('Aplikasi telah diperbarui. Memuat ulang...', 'info');
-                                setTimeout(() => {
-                                    window.location.reload();
-                                }, 2000);
-                            } else {
-                                // Simpan versi baru
-                                localStorage.setItem('appVersion', data.version);
-                                this.appVersion = data.version;
-                            }
                         }
                     } catch (error) {
-                        console.error('Version check error:', error);
+                        console.error('Feature status check error:', error);
                     }
                 },
                 
