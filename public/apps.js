@@ -1,7 +1,7 @@
         function app() {
             return {
                 // State
-                appVersion: '2.3.0',
+                appVersion: '2.4.0',
                 currentSong: {
                     title: 'Tidak ada lagu',
                     artist: 'Tidak diketahui',
@@ -33,6 +33,7 @@
                     shortLabel: 'FIFO'
                 },
                 queueLimit: 100,
+                geminiNormalizationEnabled: false,
                 newRequest: {
                     title: '',
                     artist: ''
@@ -323,7 +324,7 @@
                     }
                     
                     // Validasi 4: Format karakter
-                    const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
+                    const validCharsRegex = /^[^<>{}\u0000-\u001f]+$/u;
                     
                     if (title && !validCharsRegex.test(title)) {
                         this.showTitleError = true;
@@ -385,7 +386,11 @@
                         // Jika admin dan priority request, gunakan endpoint khusus
                         let endpoint = '/request-song';
                         let method = 'POST';
-                        let bodyData = { query: combinedQuery };
+                        let bodyData = {
+                            query: combinedQuery,
+                            title: this.newRequest.title.trim(),
+                            artist: this.newRequest.artist.trim()
+                        };
                         let requestHeaders = this.getAdminHeaders(true);
                         
                         if (isPriorityRequest) {
@@ -408,7 +413,13 @@
                             
                             await this.loadData();
                             
-                            if (isPriorityRequest) {
+                            if (result.data?.normalization?.changed) {
+                                const normalizedSong = result.data?.request;
+                                this.showToast(
+                                    `Gemini merapikan menjadi: ${normalizedSong?.title} - ${normalizedSong?.artist} (Posisi: ${result.data?.queuePosition})`,
+                                    'success'
+                                );
+                            } else if (isPriorityRequest) {
                                 this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.data?.queuePosition})`, 'success');
                             } else {
                                 this.showToast(`Ditambahkan ke antrian (Posisi: ${result.data?.queuePosition})`, 'success');
@@ -857,6 +868,7 @@
                         const result = await this.apiRequest('/version');
                         if (result.ok) {
                             const data = result.data || {};
+                            this.geminiNormalizationEnabled = Boolean(data.geminiNormalization?.enabled);
                             const savedVersion = localStorage.getItem('appVersion');
                             
                             if (savedVersion && savedVersion !== data.version) {

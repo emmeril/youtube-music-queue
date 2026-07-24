@@ -475,6 +475,11 @@
                                 Minimal 2 karakter dan maksimal 100 karakter
                             </div>
                         </div>
+
+                        <div x-show="geminiNormalizationEnabled" class="rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-3 py-2 text-xs text-cyan-200">
+                            <i class="fas fa-wand-magic-sparkles mr-1 text-cyan-400"></i>
+                            Gemini akan memeriksa judul dan artis sebelum request masuk ke antrian.
+                        </div>
                        
                         <!-- Queue Status -->
 	                        <div class="bg-gray-800/50 p-3 rounded-lg">
@@ -493,10 +498,10 @@
 	                        <!-- Tombol Submit -->
                         <div class="flex gap-2">
                             <button @click="addRequest()"
-                                    :disabled="!newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
+                                    :disabled="isLoading || !newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
                                     class="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-2.5 md:py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
-                                <i class="fas fa-plus mr-1 md:mr-2"></i>
-                                <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian')"></span>
+                                <i :class="isLoading ? 'fas fa-spinner fa-spin' : 'fas fa-plus'" class="mr-1 md:mr-2"></i>
+                                <span x-text="isLoading ? (geminiNormalizationEnabled ? 'Gemini sedang memeriksa...' : 'Menambahkan...') : (queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian'))"></span>
                             </button>
                         </div>
                     </div>

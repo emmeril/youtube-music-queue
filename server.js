@@ -5,11 +5,12 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { Sequelize, DataTypes } = require('sequelize');
+const { normalizeSongWithGemini, DEFAULT_MODEL: DEFAULT_GEMINI_MODEL } = require('./gemini-song-normalizer');
 
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
 const PORT = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 4786;
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -25,6 +26,9 @@ const DEFAULT_UNKNOWN_TITLE = 'Tidak ada lagu';
 const DEFAULT_UNKNOWN_LABEL = 'Tidak diketahui';
 const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+const GEMINI_TIMEOUT_MS = Number.parseInt(process.env.GEMINI_TIMEOUT_MS || '5000', 10);
 
 const adminSessions = new Map();
 let lastUpdateSignature = null;
@@ -325,7 +329,16 @@ function generateId() {
 }
 
 function parseSongQuery(query) {
-  const parts = normalizeInput(query).split('-').map(part => part.trim());
+  const normalized = normalizeInput(query);
+  const spacedSeparatorIndex = normalized.lastIndexOf(' - ');
+  if (spacedSeparatorIndex > 0) {
+    return {
+      title: normalized.slice(0, spacedSeparatorIndex).trim(),
+      artist: normalized.slice(spacedSeparatorIndex + 3).trim()
+    };
+  }
+
+  const parts = normalized.split('-').map(part => part.trim());
   return {
     title: parts[0] || '',
     artist: parts.slice(1).join('-') || ''
@@ -1071,15 +1084,14 @@ function validateSongRequest(query) {
   if (trimmed.length > 200) errors.push('Query terlalu panjang (maksimal 200 karakter)');
   if (/[<>{}]/.test(trimmed)) errors.push('Query mengandung karakter yang tidak diperbolehkan');
   
-  const rawParts = trimmed.split('-').map(part => part.trim());
   const parsed = parseSongQuery(trimmed);
-  if (rawParts.length < 2) errors.push('Format harus: Judul Lagu - Nama Artis');
+  if (!parsed.title || !parsed.artist) errors.push('Format harus: Judul Lagu - Nama Artis');
   if (parsed.title && parsed.title.length < 2) errors.push('Judul lagu minimal 2 karakter');
   if (parsed.artist && parsed.artist.length < 2) errors.push('Nama artis minimal 2 karakter');
   if (parsed.title && parsed.title.length > 100) errors.push('Judul lagu maksimal 100 karakter');
   if (parsed.artist && parsed.artist.length > 100) errors.push('Nama artis maksimal 100 karakter');
   if (parsed.title && /^\d+$/.test(parsed.title)) errors.push('Judul lagu tidak boleh hanya angka');
-  const validCharsRegex = /^[a-zA-Z0-9\s.,'&!?()\-"@]+$/;
+  const validCharsRegex = /^[^<>{}\u0000-\u001f]+$/u;
   if (parsed.title && !validCharsRegex.test(parsed.title)) errors.push('Judul lagu mengandung karakter tidak valid');
   if (parsed.artist && !validCharsRegex.test(parsed.artist)) errors.push('Nama artis mengandung karakter tidak valid');
   
@@ -1093,17 +1105,17 @@ function validateSongRequest(query) {
 
 function addOfficialToTitle(query) {
   try {
-    const parts = query.split('-').map(part => part.trim());
-    if (parts.length < 2) return query;
-    
-    let title = parts[0];
-    const artist = parts.slice(1).join('-');
+    const parsed = parseSongQuery(query);
+    if (!parsed.title || !parsed.artist) return query;
+
+    let title = parsed.title;
+    const artist = parsed.artist;
     title = title
       .replace(/\b(original\s+lirik|lyrics?|lirik)\b/gi, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
-    if (!title) title = parts[0];
+    if (!title) title = parsed.title;
     
     return `${title} - ${artist}`;
   } catch (error) {
@@ -1113,7 +1125,7 @@ function addOfficialToTitle(query) {
 }
 
 // Fungsi untuk membuat objek request baru
-function createRequestObject(query, ip, userAgent, isPriority = false, addedByAdmin = false) {
+function createRequestObject(query, ip, userAgent, isPriority = false, addedByAdmin = false, originalQuery = query, songFields = null) {
   const queryWithOfficial = addOfficialToTitle(query);
   const parsed = parseSongQuery(queryWithOfficial);
   return {
@@ -1122,36 +1134,69 @@ function createRequestObject(query, ip, userAgent, isPriority = false, addedByAd
     time: Date.now(),
     status: 'pending',
     addedBy: ip || DEFAULT_UNKNOWN,
-    title: parsed.title || queryWithOfficial,
-    artist: parsed.artist || DEFAULT_UNKNOWN_ARTIST,
+    title: songFields?.title || parsed.title || queryWithOfficial,
+    artist: songFields?.artist || parsed.artist || DEFAULT_UNKNOWN_ARTIST,
     userAgent: userAgent || DEFAULT_UNKNOWN,
-    originalQuery: query,
+    originalQuery,
     isPriority,
     addedByAdmin
   };
 }
 
 // Fungsi untuk menambahkan request ke antrian (dengan validasi dan pengecekan duplicate)
-async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false) {
-  const normalizedQuery = normalizeInput(query);
+async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false, songInput = null) {
+  const submittedQuery = normalizeInput(query);
+  const parsedSubmittedQuery = parseSongQuery(submittedQuery);
+  const submittedTitle = normalizeInput(songInput?.title) || parsedSubmittedQuery.title;
+  const submittedArtist = normalizeInput(songInput?.artist) || parsedSubmittedQuery.artist;
+  const inputQuery = submittedTitle && submittedArtist
+    ? `${submittedTitle} - ${submittedArtist}`
+    : submittedQuery;
 
   // Validasi
-  const validation = validateSongRequest(normalizedQuery);
+  const validation = validateSongRequest(inputQuery);
   if (!validation.isValid) {
     return { success: false, error: validation.errors[0], details: validation.errors };
   }
-  
+
+  let geminiResult = await normalizeSongWithGemini({
+    title: submittedTitle,
+    artist: submittedArtist,
+    apiKey: GEMINI_API_KEY,
+    model: GEMINI_MODEL,
+    timeoutMs: GEMINI_TIMEOUT_MS
+  });
+  let normalizedQuery = `${geminiResult.title} - ${geminiResult.artist}`;
+  const normalizedValidation = validateSongRequest(normalizedQuery);
+  if (!normalizedValidation.isValid) {
+    normalizedQuery = inputQuery;
+    geminiResult = {
+      title: submittedTitle,
+      artist: submittedArtist,
+      usedGemini: false,
+      changed: false,
+      reason: 'Hasil Gemini tidak lolos validasi'
+    };
+  }
+
   const queryWithOfficial = addOfficialToTitle(normalizedQuery);
   const parsedQuery = parseSongQuery(queryWithOfficial);
 
   const swapCheck = detectSwappedTitleArtist(queryWithOfficial);
-  const warnings = swapCheck.isSwapped
-    ? [{
+  const warnings = [];
+  if (geminiResult.usedGemini && geminiResult.changed) {
+    warnings.push({
+      code: 'GEMINI_METADATA_NORMALIZED',
+      message: `Gemini menormalkan metadata menjadi "${parsedQuery.title} - ${parsedQuery.artist}".`
+    });
+  }
+  if (swapCheck.isSwapped && !geminiResult.changed) {
+    warnings.push({
         code: 'POSSIBLE_TITLE_ARTIST_SWAPPED',
         message: 'Judul dan artis mungkin tertukar, tetapi request tetap ditambahkan.',
         suggestedQuery: swapCheck.suggestedQuery
-      }]
-    : [];
+    });
+  }
   
   // Cek antrian penuh
   if (state.requestQueue.length >= QUEUE_LIMIT) {
@@ -1196,7 +1241,15 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     };
   }
   
-  const newRequest = createRequestObject(normalizedQuery, ip, userAgent, isPriority, addedByAdmin);
+  const newRequest = createRequestObject(
+    normalizedQuery,
+    ip,
+    userAgent,
+    isPriority,
+    addedByAdmin,
+    inputQuery,
+    { title: parsedQuery.title, artist: parsedQuery.artist }
+  );
   
   const queuePosition = insertRequestIntoQueue(newRequest, position);
   
@@ -1208,6 +1261,12 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     success: true,
     request: newRequest,
     warnings,
+    normalization: {
+      enabled: Boolean(GEMINI_API_KEY),
+      usedGemini: geminiResult.usedGemini,
+      changed: geminiResult.changed,
+      model: geminiResult.usedGemini ? GEMINI_MODEL : null
+    },
     queuePosition,
     estimatedWait: calculateWaitTime(queuePosition, currentRemainingSeconds),
     queueLimit: QUEUE_LIMIT,
@@ -1225,8 +1284,8 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
     responseQueuePosition = null
   } = options;
 
-  const { query } = req.body;
-  if (isBlank(query)) {
+  const { query, title, artist } = req.body;
+  if (isBlank(query) && (isBlank(title) || isBlank(artist))) {
     return sendError(res, 400, 'QUERY_REQUIRED', 'Query tidak boleh kosong');
   }
 
@@ -1236,7 +1295,8 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
     req.headers['user-agent'],
     position,
     isPriority,
-    addedByAdmin
+    addedByAdmin,
+    { title, artist }
   );
 
   if (!result.success) {
@@ -1251,6 +1311,7 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
     message: successMessage,
     request: result.request,
     warnings: result.warnings || [],
+    normalization: result.normalization,
     queuePosition: responseQueuePosition ?? result.queuePosition,
     estimatedWait: result.estimatedWait,
     queueLimit: result.queueLimit,
@@ -2248,7 +2309,11 @@ app.get('/version', (req, res) => {
   res.json({
     version: APP_VERSION,
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle'],
+    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle', 'gemini-song-normalization'],
+    geminiNormalization: {
+      enabled: Boolean(GEMINI_API_KEY),
+      model: GEMINI_MODEL
+    },
     serverUptime: process.uptime(),
     queueSize: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
@@ -2268,6 +2333,10 @@ app.get('/health', (req, res) => {
     queueLimit,
     currentQueue: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
+    geminiNormalization: {
+      enabled: Boolean(GEMINI_API_KEY),
+      model: GEMINI_MODEL
+    },
     persistence,
     isLocked,
     lockRemaining
@@ -2342,6 +2411,7 @@ async function initialize() {
     console.log(`[START] Queue limit: ${QUEUE_LIMIT} songs`);
     console.log('[START] Auto-refresh: Enabled');
     console.log('[START] Auto "official" tag: Enabled');
+    console.log(`[START] Gemini metadata normalization: ${GEMINI_API_KEY ? `Enabled (${GEMINI_MODEL})` : 'Disabled (set GEMINI_API_KEY)'}`);
     console.log("=".repeat(50));
     if (state.requestLockUntil > 0) {
       const remaining = Math.ceil((state.requestLockUntil - Date.now()) / 1000);
