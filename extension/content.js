@@ -6,6 +6,7 @@ const CONFIG = {
   SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
   ADMIN_SECRET_STORAGE_KEY: 'ytmBridgeAdminSecret',
   PENDING_SEARCH_URL_STORAGE_KEY: 'ytmBridgePendingSearchUrl',
+  PENDING_AUTOPLAY_VIDEO_ID_STORAGE_KEY: 'ytmBridgePendingAutoplayVideoId',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
   SEARCH_TIMEOUT: 15000,
@@ -154,6 +155,27 @@ function setPendingSearchUrl(url) {
   } catch (error) {
     // Ignore storage access failures and keep runtime-only state.
   }
+}
+
+function setPendingAutoplayVideoId(videoId) {
+  try {
+    if (videoId) {
+      window.sessionStorage.setItem(CONFIG.PENDING_AUTOPLAY_VIDEO_ID_STORAGE_KEY, videoId);
+    } else {
+      window.sessionStorage.removeItem(CONFIG.PENDING_AUTOPLAY_VIDEO_ID_STORAGE_KEY);
+      delete document.documentElement.dataset.ytmBridgeAutoplayVideoId;
+      window.dispatchEvent(new Event('ytm-bridge-cancel-playback'));
+    }
+  } catch (error) {
+    // The main-world player helper also keeps its own runtime copy.
+  }
+}
+
+function requestMainWorldPlayback(videoId) {
+  if (!videoId) return;
+  setPendingAutoplayVideoId(videoId);
+  document.documentElement.dataset.ytmBridgeAutoplayVideoId = videoId;
+  window.dispatchEvent(new Event('ytm-bridge-request-playback'));
 }
 
 function getSearchQueryValue(url) {
@@ -687,6 +709,8 @@ class SearchAutoplay {
     this.songFilterApplied = false;
     this.rejectedCandidateKeys = new Set();
     this.pendingCandidate = null;
+    this.playbackResumeAttempted = false;
+    this.navigationFallbackAttempted = false;
   }
 
   isSearchPage(url = window.location.href) {
@@ -700,7 +724,7 @@ class SearchAutoplay {
       src: video?.currentSrc || video?.src || '',
       currentTime: Number(video?.currentTime || 0),
       paused: Boolean(video?.paused),
-      videoId: this.getVideoIdFromUrl(window.location.href)
+      videoId: this.getCurrentPlayingVideoId()
     };
   }
 
@@ -713,6 +737,16 @@ class SearchAutoplay {
     } catch (error) {
       return '';
     }
+  }
+
+  getCurrentPlayingVideoId() {
+    const urlVideoId = this.getVideoIdFromUrl(window.location.href);
+    if (urlVideoId) return urlVideoId;
+
+    const playerLink = document.querySelector(
+      'ytmusic-player-bar .title a[href*="watch?v="], ytmusic-player-bar a[href*="watch?v="]'
+    );
+    return this.getVideoIdFromUrl(playerLink?.getAttribute('href') || playerLink?.href || '');
   }
 
   hasPlaybackActuallyStarted(candidate = null) {
@@ -778,24 +812,28 @@ class SearchAutoplay {
       return;
     }
 
-    this.ensureSongFilterApplied();
+    if (this.ensureSongFilterApplied()) {
+      this.log('Waiting for song-filtered results to finish rendering');
+      return;
+    }
 
     const bestCandidate = this.findBestSongCandidate();
     if (bestCandidate && bestCandidate.playElement) {
       this.log(`Found candidate score=${bestCandidate.score}`);
       bestCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => {
-        const playbackState = this.getCurrentVideoState();
-        this.pendingCandidate = {
-          ...bestCandidate,
-          sourceUrl: window.location.href,
-          sourceVideoSrc: playbackState.src,
-          sourceVideoId: playbackState.videoId
-        };
-        bestCandidate.playElement.click();
-        this.log(`Opened exact search result videoId=${bestCandidate.videoId}`);
-        this.verifyPlayback(this.pendingCandidate);
-      }, 500);
+      const playbackState = this.getCurrentVideoState();
+      this.playbackResumeAttempted = false;
+      this.navigationFallbackAttempted = false;
+      this.pendingCandidate = {
+        ...bestCandidate,
+        sourceUrl: window.location.href,
+        sourceVideoSrc: playbackState.src,
+        sourceVideoId: playbackState.videoId
+      };
+      bestCandidate.playElement.click();
+      requestMainWorldPlayback(bestCandidate.videoId);
+      this.log(`Started exact search result videoId=${bestCandidate.videoId}`);
+      this.verifyPlayback(this.pendingCandidate);
       this.stop();
       return;
     }
@@ -806,7 +844,7 @@ class SearchAutoplay {
   }
 
   ensureSongFilterApplied() {
-    if (this.songFilterApplied) return;
+    if (this.songFilterApplied) return false;
 
     const filterElements = Array.from(
       document.querySelectorAll('tp-yt-paper-tab, button, yt-chip-cloud-chip-renderer')
@@ -819,9 +857,18 @@ class SearchAutoplay {
 
     if (songFilter && songFilter instanceof HTMLElement) {
       this.songFilterApplied = true;
+      const isAlreadySelected =
+        songFilter.getAttribute('aria-selected') === 'true' ||
+        songFilter.hasAttribute('selected') ||
+        songFilter.classList.contains('selected');
+      if (isAlreadySelected) return false;
+
       songFilter.click();
       this.log('Applied song filter from search chips');
+      return true;
     }
+
+    return false;
   }
 
   findBestSongCandidate() {
@@ -871,7 +918,15 @@ class SearchAutoplay {
       const href = link.getAttribute('href') || link.href || '';
       const videoId = this.getVideoIdFromUrl(href);
       if (videoId) {
-        return { playElement: link, videoId };
+        const rowPlayButton =
+          row.querySelector('ytmusic-play-button-renderer button') ||
+          row.querySelector('ytmusic-play-button-renderer tp-yt-paper-icon-button') ||
+          row.querySelector('ytmusic-play-button-renderer');
+        return {
+          playElement: rowPlayButton || link,
+          videoId,
+          watchUrl: `https://music.youtube.com/watch?v=${encodeURIComponent(videoId)}&autoplay=1`
+        };
       }
     }
 
@@ -1088,23 +1143,65 @@ class SearchAutoplay {
   }
 
   async waitForPlaybackState(candidate, timeoutMs = 6000) {
+    const startedAt = Date.now();
     const deadline = Date.now() + timeoutMs;
     let playbackState = this.getCurrentVideoState();
 
     while (Date.now() < deadline) {
       playbackState = this.getCurrentVideoState();
-      const hasWrongVideoId = Boolean(
-        candidate?.videoId &&
-        playbackState.videoId &&
-        candidate.videoId !== playbackState.videoId
-      );
-      if (hasWrongVideoId || this.hasPlaybackActuallyStarted(candidate)) {
+      await this.tryStartLoadedCandidate(candidate, playbackState);
+      playbackState = this.getCurrentVideoState();
+      const hasExpectedVideoId = !candidate?.videoId || !playbackState.videoId || candidate.videoId === playbackState.videoId;
+      if (hasExpectedVideoId && this.hasPlaybackActuallyStarted(candidate)) {
         return playbackState;
+      }
+
+      if (
+        !this.navigationFallbackAttempted &&
+        candidate?.watchUrl &&
+        Date.now() - startedAt >= 2500
+      ) {
+        this.navigationFallbackAttempted = true;
+        requestMainWorldPlayback(candidate.videoId);
+        this.log(`Play button did not start playback; opening ${candidate.watchUrl}`);
+        window.location.href = candidate.watchUrl;
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     return playbackState;
+  }
+
+  async tryStartLoadedCandidate(candidate, playbackState) {
+    if (
+      this.playbackResumeAttempted ||
+      !candidate?.videoId ||
+      playbackState?.videoId !== candidate.videoId ||
+      !playbackState.video ||
+      !playbackState.paused
+    ) {
+      return;
+    }
+
+    this.playbackResumeAttempted = true;
+    requestMainWorldPlayback(candidate.videoId);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (!playbackState.video.paused) return;
+
+    try {
+      await playbackState.video.play();
+      this.log('Started loaded candidate through the video element');
+      return;
+    } catch (error) {
+      this.log('Direct video playback was blocked, trying the player control');
+    }
+
+    const playerButton = document.querySelector(
+      'ytmusic-player-bar #play-pause-button, ytmusic-player-bar button[aria-label*="Play"], ' +
+      'ytmusic-player-bar button[aria-label*="Putar"], #movie_player .ytp-play-button'
+    );
+    playerButton?.click();
   }
 
   async verifyPlayback(candidate = null) {
@@ -1152,6 +1249,7 @@ class SearchAutoplay {
 
       this.log('Playback verified successfully');
       this.pendingCandidate = null;
+      setPendingAutoplayVideoId(null);
       RequestProcessor.clearPendingSearchUrl();
       this.goBackAfterDelay();
     } else {
@@ -1168,6 +1266,7 @@ class SearchAutoplay {
 
   async retrySearchAfterRejectedCandidate(video) {
     this.stop();
+    setPendingAutoplayVideoId(null);
 
     try {
       if (video) {
@@ -1195,6 +1294,7 @@ class SearchAutoplay {
 
   async rejectCurrentPlayback(video) {
     this.stop();
+    setPendingAutoplayVideoId(null);
 
     try {
       if (video) {
@@ -1220,6 +1320,7 @@ class SearchAutoplay {
   tryAlternativeMethods() {
     this.log('Trying alternative search methods...');
     this.stop();
+    setPendingAutoplayVideoId(null);
 
     if (RequestProcessor.getSearchTarget()?.rawQuery) {
       this.log('Alternative methods skipped because they cannot guarantee the requested song');

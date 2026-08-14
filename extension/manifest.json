@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YT Music Local Bridge",
-  "version": "1.0",
+  "version": "1.1",
   "permissions": ["tabs"],
   "host_permissions": [
     "https://music.youtube.com/*",
@@ -10,6 +10,12 @@
     "http://127.0.0.1:4786/*"
   ],
   "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["page-player.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": ["https://music.youtube.com/*"],
       "js": ["content.js"]
