@@ -734,6 +734,7 @@ class SearchAutoplay {
     this.rejectedCandidateKeys = new Set();
     this.pendingCandidate = null;
     this.playbackResumeAttempted = false;
+    this.navigationFallbackAttempted = false;
   }
 
   isSearchPage(url = window.location.href) {
@@ -805,8 +806,8 @@ class SearchAutoplay {
 
     this.timeoutId = setTimeout(() => {
       if (this.interval) {
+        this.stop();
         this.log('Search autoplay timeout');
-        this.tryAlternativeMethods();
       }
     }, this.timeout);
   }
@@ -831,6 +832,7 @@ class SearchAutoplay {
     if (this.pendingCandidate && this.hasPlaybackActuallyStarted(this.pendingCandidate)) {
       this.log('Video already playing, stopping search');
       this.stop();
+      this.goBackAfterDelay();
       return;
     }
 
@@ -845,6 +847,7 @@ class SearchAutoplay {
       bestCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
       const playbackState = this.getCurrentVideoState();
       this.playbackResumeAttempted = false;
+      this.navigationFallbackAttempted = false;
       this.pendingCandidate = {
         ...bestCandidate,
         sourceUrl: window.location.href,
@@ -954,7 +957,7 @@ class SearchAutoplay {
     this.log(
       `Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
     );
-    return best;
+    return best.score >= this.getMinimumCandidateScore(target) ? best : undefined;
   }
 
   findExactPlaybackTarget(row) {
@@ -967,10 +970,10 @@ class SearchAutoplay {
           row.querySelector('ytmusic-play-button-renderer button') ||
           row.querySelector('ytmusic-play-button-renderer tp-yt-paper-icon-button') ||
           row.querySelector('ytmusic-play-button-renderer');
-        if (!rowPlayButton) continue;
         return {
-          playElement: rowPlayButton,
-          videoId
+          playElement: rowPlayButton || link,
+          videoId,
+          watchUrl: `https://music.youtube.com/watch?v=${encodeURIComponent(videoId)}&autoplay=1`
         };
       }
     }
@@ -995,6 +998,7 @@ class SearchAutoplay {
       'podcast',
       'episode',
       'mix',
+      'live',
       'karaoke',
       'dj set',
       'radio',
@@ -1062,21 +1066,10 @@ class SearchAutoplay {
     return this.countTokenMatches(text, tokens) / tokens.length;
   }
 
-  getTitleMatchCoverage(text, tokens = []) {
-    const tokenCoverage = this.getMatchCoverage(text, tokens);
-    if (!tokens.length || tokenCoverage === 1) return tokenCoverage;
-
-    const compactTarget = tokens.join('');
-    const compactText = RequestProcessor.normalizeText(text).replace(/\s+/g, '');
-    if (compactTarget.length >= 4 && compactText.includes(compactTarget)) {
-      return 1;
-    }
-
-    return tokenCoverage;
-  }
-
-  getPlayableCoverage(tokens = []) {
-    return tokens.length <= 1 ? 1 : 0.5;
+  getRequiredCoverage(tokens = []) {
+    if (tokens.length <= 1) return 1;
+    if (tokens.length === 2) return 0.75;
+    return 0.67;
   }
 
   isCandidateTargetMatch(meta, target) {
@@ -1084,14 +1077,14 @@ class SearchAutoplay {
 
     const titleText = meta?.title || meta?.text || '';
     const combinedText = `${meta?.title || ''} ${meta?.subtitle || ''} ${meta?.text || ''}`.trim();
-    const titleCoverage = this.getTitleMatchCoverage(titleText, target.titleTokens);
-    if (titleCoverage < this.getPlayableCoverage(target.titleTokens)) {
+    const titleCoverage = this.getMatchCoverage(titleText, target.titleTokens);
+    if (titleCoverage < this.getRequiredCoverage(target.titleTokens)) {
       return false;
     }
 
     if (target.artistTokens.length > 0) {
       const artistCoverage = this.getMatchCoverage(combinedText, target.artistTokens);
-      if (artistCoverage < this.getPlayableCoverage(target.artistTokens)) {
+      if (artistCoverage < this.getRequiredCoverage(target.artistTokens)) {
         return false;
       }
     }
@@ -1104,11 +1097,20 @@ class SearchAutoplay {
 
     const actualTitle = RequestProcessor.normalizeText(songInfo.title || '');
     const actualArtist = RequestProcessor.normalizeText(songInfo.artist || '');
-    return this.isCandidateTargetMatch({
-      title: actualTitle,
-      subtitle: actualArtist,
-      text: `${actualTitle} ${actualArtist}`.trim()
-    }, target);
+    const combinedActual = `${actualTitle} ${actualArtist}`.trim();
+    const titleCoverage = this.getMatchCoverage(actualTitle || combinedActual, target.titleTokens);
+    if (titleCoverage < this.getRequiredCoverage(target.titleTokens)) {
+      return false;
+    }
+
+    if (target.artistTokens.length > 0) {
+      const artistCoverage = this.getMatchCoverage(combinedActual, target.artistTokens);
+      if (artistCoverage < this.getRequiredCoverage(target.artistTokens)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   scoreRow(meta, durationSeconds, target) {
@@ -1149,8 +1151,9 @@ class SearchAutoplay {
     }
 
     if (target && target.titleTokens.length) {
-      const titleCoverage = this.getTitleMatchCoverage(meta.title || text, target.titleTokens);
-      const artistScore = this.countTokenMatches(`${meta.subtitle || ''} ${text}`, target.artistTokens);
+      const titleScore = this.countTokenMatches(meta.title || text, target.titleTokens);
+      const artistScore = this.countTokenMatches(meta.subtitle || text, target.artistTokens);
+      const titleCoverage = titleScore / target.titleTokens.length;
       const artistCoverage = target.artistTokens.length > 0
         ? (artistScore / target.artistTokens.length)
         : 0;
@@ -1195,6 +1198,7 @@ class SearchAutoplay {
   }
 
   async waitForPlaybackState(candidate, timeoutMs = 6000) {
+    const startedAt = Date.now();
     const deadline = Date.now() + timeoutMs;
     let playbackState = this.getCurrentVideoState();
 
@@ -1207,6 +1211,17 @@ class SearchAutoplay {
         return playbackState;
       }
 
+      if (
+        !this.navigationFallbackAttempted &&
+        candidate?.watchUrl &&
+        Date.now() - startedAt >= 2500
+      ) {
+        this.navigationFallbackAttempted = true;
+        requestMainWorldPlayback(candidate.videoId);
+        this.log(`Play button did not start playback; opening ${candidate.watchUrl}`);
+        window.location.href = candidate.watchUrl;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
@@ -1291,6 +1306,7 @@ class SearchAutoplay {
       this.pendingCandidate = null;
       setPendingAutoplayVideoId(null);
       RequestProcessor.clearPendingSearchUrl();
+      this.goBackAfterDelay();
     } else {
       this.log('Playback not detected, retrying...');
       const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
@@ -1357,16 +1373,52 @@ class SearchAutoplay {
   }
 
   tryAlternativeMethods() {
-    this.log('No playable match found; releasing the request lock');
+    this.log('Trying alternative search methods...');
     this.stop();
     setPendingAutoplayVideoId(null);
-    DebugPanel.setStatus('Tidak menemukan hasil cocok, lanjut request berikutnya', true);
-    ServerAPI.skipCurrent()
-      .then(() => {
-        RequestProcessor.clearPendingSearchUrl();
-        setTimeout(() => RequestProcessor.checkRequests(), 500);
-      })
-      .catch((error) => this.error('Failed to release unmatched request', error));
+
+    if (RequestProcessor.getSearchTarget()?.rawQuery) {
+      this.log('Alternative methods skipped because they cannot guarantee the requested song');
+      DebugPanel.setStatus('Tidak menemukan hasil cocok, lanjut request berikutnya', true);
+      ServerAPI.skipCurrent()
+        .then(() => {
+          RequestProcessor.clearPendingSearchUrl();
+          setTimeout(() => RequestProcessor.checkRequests(), 500);
+        })
+        .catch((error) => this.error('Failed to release unmatched request', error));
+      return;
+    }
+
+    const links = document.querySelectorAll('a[href*="/watch"]');
+    for (const link of links) {
+      if (!link.href.includes('list=')) {
+        link.click();
+        this.log('Clicked watch link:', link.href);
+        this.goBackAfterDelay();
+        return;
+      }
+    }
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+    this.log('Sent space key for playback');
+
+    setTimeout(() => {
+      const video = document.querySelector('video');
+      if (!video || video.paused) {
+        this.log('Alternative methods failed');
+      } else {
+        this.goBackAfterDelay();
+      }
+    }, 2000);
+  }
+
+  goBackAfterDelay() {
+    setTimeout(() => {
+      if (window.location.href.includes('/search?q=') && window.history.length > 1) {
+        this.log('Returning to previous page...');
+        window.history.back();
+      }
+    }, 3000);
   }
 
   log(...args) {
