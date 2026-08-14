@@ -699,8 +699,20 @@ class SearchAutoplay {
       video,
       src: video?.currentSrc || video?.src || '',
       currentTime: Number(video?.currentTime || 0),
-      paused: Boolean(video?.paused)
+      paused: Boolean(video?.paused),
+      videoId: this.getVideoIdFromUrl(window.location.href)
     };
+  }
+
+  getVideoIdFromUrl(url) {
+    if (!url) return '';
+
+    try {
+      const parsedUrl = new URL(url, window.location.origin);
+      return (parsedUrl.searchParams.get('v') || '').trim();
+    } catch (error) {
+      return '';
+    }
   }
 
   hasPlaybackActuallyStarted(candidate = null) {
@@ -777,35 +789,15 @@ class SearchAutoplay {
         this.pendingCandidate = {
           ...bestCandidate,
           sourceUrl: window.location.href,
-          sourceVideoSrc: playbackState.src
+          sourceVideoSrc: playbackState.src,
+          sourceVideoId: playbackState.videoId
         };
         bestCandidate.playElement.click();
-        this.log('Clicked best candidate play element');
+        this.log(`Opened exact search result videoId=${bestCandidate.videoId}`);
         this.verifyPlayback(this.pendingCandidate);
       }, 500);
       this.stop();
       return;
-    }
-
-    if (this.attempts >= 4 && !RequestProcessor.getSearchTarget()?.titleTokens?.length) {
-      const fallbackCandidate = this.findFallbackPlayElement();
-      if (fallbackCandidate?.playElement) {
-        this.log('No strong candidate yet, using fallback play element');
-        fallbackCandidate.playElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setTimeout(() => {
-          const playbackState = this.getCurrentVideoState();
-          this.pendingCandidate = {
-            ...fallbackCandidate,
-            sourceUrl: window.location.href,
-            sourceVideoSrc: playbackState.src
-          };
-          fallbackCandidate.playElement.click();
-          this.log('Clicked fallback play element');
-          this.verifyPlayback(this.pendingCandidate);
-        }, 500);
-        this.stop();
-        return;
-      }
     }
 
     if (this.attempts >= this.maxAttempts) {
@@ -839,13 +831,13 @@ class SearchAutoplay {
 
     const candidates = [];
     for (const row of rows) {
-      const playElement = this.findPlayButton(row);
-      if (!playElement) continue;
+      const playbackTarget = this.findExactPlaybackTarget(row);
+      if (!playbackTarget) continue;
 
       const rowText = RequestProcessor.normalizeText(row.innerText || '');
       const durationSeconds = this.extractDurationSeconds(rowText);
       const rowMeta = this.extractRowMeta(row, rowText);
-      const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
+      const candidateKey = this.getCandidateKey(rowMeta, durationSeconds, playbackTarget.videoId);
       if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
         continue;
       }
@@ -854,7 +846,13 @@ class SearchAutoplay {
       }
 
       const score = this.scoreRow(rowMeta, durationSeconds, target);
-      candidates.push({ playElement, score, durationSeconds, rowMeta, candidateKey });
+      candidates.push({
+        ...playbackTarget,
+        score,
+        durationSeconds,
+        rowMeta,
+        candidateKey
+      });
     }
 
     if (!candidates.length) return undefined;
@@ -867,56 +865,16 @@ class SearchAutoplay {
     return best.score >= this.getMinimumCandidateScore(target) ? best : undefined;
   }
 
-  findPlayButton(row) {
-    const selectors = [
-      'ytmusic-play-button-renderer button',
-      'ytmusic-play-button-renderer yt-icon-button button',
-      'button[aria-label*="Play"]',
-      'button[aria-label*="Putar"]',
-      'button[title*="Play"]',
-      'button[title*="Putar"]',
-      '[aria-label*="Play"]',
-      '[aria-label*="Putar"]',
-      '#play-button'
-    ];
-
-    for (const selector of selectors) {
-      const candidate = row.querySelector(selector);
-      if (candidate) return candidate;
-    }
-
-    const link = row.querySelector('a.yt-simple-endpoint[href]');
-    if (link && !/\/watch\?/.test(link.getAttribute('href') || '')) {
-      return link;
-    }
-
-    return null;
-  }
-
-  findFallbackPlayElement() {
-    const rowSelectors = [
-      'ytmusic-shelf-renderer ytmusic-responsive-list-item-renderer',
-      'ytmusic-section-list-renderer ytmusic-responsive-list-item-renderer',
-      'ytmusic-responsive-list-item-renderer'
-    ];
-
-    for (const rowSelector of rowSelectors) {
-      const rows = Array.from(document.querySelectorAll(rowSelector)).slice(0, 10);
-      for (const row of rows) {
-        const rowText = RequestProcessor.normalizeText(row.innerText || '');
-        const durationSeconds = this.extractDurationSeconds(rowText);
-        const rowMeta = this.extractRowMeta(row, rowText);
-        const candidateKey = this.getCandidateKey(rowMeta, durationSeconds);
-        if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
-          continue;
-        }
-
-        const playElement = this.findPlayButton(row);
-        if (playElement) {
-          return { playElement, durationSeconds, rowMeta, candidateKey, score: 0 };
-        }
+  findExactPlaybackTarget(row) {
+    const watchLinks = Array.from(row.querySelectorAll('a[href*="/watch?"]'));
+    for (const link of watchLinks) {
+      const href = link.getAttribute('href') || link.href || '';
+      const videoId = this.getVideoIdFromUrl(href);
+      if (videoId) {
+        return { playElement: link, videoId };
       }
     }
+
     return null;
   }
 
@@ -964,9 +922,10 @@ class SearchAutoplay {
   }
 
   extractRowMeta(row, rowText) {
-    const titleElement = row.querySelector(
-      '#title, .title, yt-formatted-string.title, a.yt-simple-endpoint[title], a.yt-simple-endpoint[href]'
-    );
+    const watchLinks = Array.from(row.querySelectorAll('a[href*="/watch?"]'));
+    const titleElement =
+      watchLinks.find((link) => (link.getAttribute('title') || link.textContent || '').trim()) ||
+      row.querySelector('#title, .title, yt-formatted-string.title');
     const subtitleElement = row.querySelector(
       '.secondary-flex-columns, .subtitle, .byline, yt-formatted-string.byline, yt-formatted-string.secondary-flex-column, .secondary-text'
     );
@@ -981,8 +940,8 @@ class SearchAutoplay {
     return { title, subtitle, text: rowText };
   }
 
-  getCandidateKey(meta, durationSeconds) {
-    return [meta?.title || '', meta?.subtitle || '', durationSeconds || 0].join('|');
+  getCandidateKey(meta, durationSeconds, videoId = '') {
+    return [videoId, meta?.title || '', meta?.subtitle || '', durationSeconds || 0].join('|');
   }
 
   getMinimumCandidateScore(target) {
@@ -1101,9 +1060,10 @@ class SearchAutoplay {
 
   countTokenMatches(text, tokens = []) {
     if (!tokens.length) return 0;
+    const textTokens = new Set(RequestProcessor.tokenizeForMatch(text));
     let matches = 0;
     for (const token of tokens) {
-      if (token && text.includes(token)) matches++;
+      if (token && textTokens.has(token)) matches++;
     }
     return matches;
   }
@@ -1127,10 +1087,40 @@ class SearchAutoplay {
     return 0;
   }
 
-  async verifyPlayback(candidate = null) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+  async waitForPlaybackState(candidate, timeoutMs = 6000) {
+    const deadline = Date.now() + timeoutMs;
+    let playbackState = this.getCurrentVideoState();
 
-    const { video } = this.getCurrentVideoState();
+    while (Date.now() < deadline) {
+      playbackState = this.getCurrentVideoState();
+      const hasWrongVideoId = Boolean(
+        candidate?.videoId &&
+        playbackState.videoId &&
+        candidate.videoId !== playbackState.videoId
+      );
+      if (hasWrongVideoId || this.hasPlaybackActuallyStarted(candidate)) {
+        return playbackState;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    return playbackState;
+  }
+
+  async verifyPlayback(candidate = null) {
+    const { video, videoId } = await this.waitForPlaybackState(candidate);
+    if (candidate?.videoId && videoId && videoId !== candidate.videoId) {
+      const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
+      if (candidateKey) {
+        this.rejectedCandidateKeys.add(candidateKey);
+      }
+
+      this.log(`Rejected playback videoId=${videoId}, expected=${candidate.videoId}`);
+      this.pendingCandidate = null;
+      await this.retrySearchAfterRejectedCandidate(video);
+      return;
+    }
+
     if (this.hasPlaybackActuallyStarted(candidate)) {
       const actualDurationSeconds = Math.round(Number(video.duration || 0));
       if (!this.isDurationAllowed(actualDurationSeconds)) {
@@ -1231,7 +1221,7 @@ class SearchAutoplay {
     this.log('Trying alternative search methods...');
     this.stop();
 
-    if (RequestProcessor.getSearchTarget()?.titleTokens?.length) {
+    if (RequestProcessor.getSearchTarget()?.rawQuery) {
       this.log('Alternative methods skipped because they cannot guarantee the requested song');
       DebugPanel.setStatus('Tidak menemukan hasil cocok, lanjut request berikutnya', true);
       ServerAPI.skipCurrent()
@@ -1470,10 +1460,19 @@ class RequestProcessor {
   static tokenize(value) {
     if (!value) return [];
     const stopWords = new Set(['official', 'audio', 'video', 'lyrics', 'lirik', 'feat', 'ft', 'the', 'a']);
-    return value
+    const tokens = value
       .split(/\s+/)
       .map(part => part.trim())
-      .filter(part => part.length > 1 && !stopWords.has(part));
+      .filter(part => part.length > 1);
+    const meaningfulTokens = tokens.filter(part => !stopWords.has(part));
+    return meaningfulTokens.length ? meaningfulTokens : tokens;
+  }
+
+  static tokenizeForMatch(value) {
+    return this.normalizeText(value)
+      .split(/\s+/)
+      .map(part => part.trim())
+      .filter(Boolean);
   }
 
   static log(...args) {
