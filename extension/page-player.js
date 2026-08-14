@@ -4,6 +4,7 @@
   const RUNTIME_KEY = '__ytmBridgePagePlayer';
   const STORAGE_KEY = 'ytmBridgePendingAutoplayVideoId';
   const SEARCH_STORAGE_KEY = 'ytmBridgePendingSearchUrl';
+  const SEARCH_TARGET_STORAGE_KEY = 'ytmBridgePendingSearchTarget';
   if (window[RUNTIME_KEY]) return;
 
   const runtime = {
@@ -95,6 +96,7 @@
     if (video && !video.paused && currentVideoId === runtime.expectedVideoId) {
       try {
         window.sessionStorage.removeItem(SEARCH_STORAGE_KEY);
+        window.sessionStorage.removeItem(SEARCH_TARGET_STORAGE_KEY);
       } catch (error) {
         // Playback has already started; storage cleanup can be skipped.
       }

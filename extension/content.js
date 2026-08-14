@@ -6,6 +6,7 @@ const CONFIG = {
   SEARCH_MAX_DURATION_STORAGE_KEY: 'ytmBridgeSearchMaxDurationSeconds',
   ADMIN_SECRET_STORAGE_KEY: 'ytmBridgeAdminSecret',
   PENDING_SEARCH_URL_STORAGE_KEY: 'ytmBridgePendingSearchUrl',
+  PENDING_SEARCH_TARGET_STORAGE_KEY: 'ytmBridgePendingSearchTarget',
   PENDING_AUTOPLAY_VIDEO_ID_STORAGE_KEY: 'ytmBridgePendingAutoplayVideoId',
   UPDATE_INTERVAL: 500,
   REQUEST_CHECK_INTERVAL: 500,
@@ -154,6 +155,29 @@ function setPendingSearchUrl(url) {
     }
   } catch (error) {
     // Ignore storage access failures and keep runtime-only state.
+  }
+}
+
+function getPendingSearchTarget() {
+  try {
+    const serializedTarget = window.sessionStorage.getItem(CONFIG.PENDING_SEARCH_TARGET_STORAGE_KEY);
+    if (!serializedTarget) return null;
+    const target = JSON.parse(serializedTarget);
+    return target && typeof target === 'object' && target.rawQuery ? target : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function setPendingSearchTarget(target) {
+  try {
+    if (target?.rawQuery) {
+      window.sessionStorage.setItem(CONFIG.PENDING_SEARCH_TARGET_STORAGE_KEY, JSON.stringify(target));
+    } else {
+      window.sessionStorage.removeItem(CONFIG.PENDING_SEARCH_TARGET_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Keep the in-memory target when sessionStorage is unavailable.
   }
 }
 
@@ -873,13 +897,20 @@ class SearchAutoplay {
 
   findBestSongCandidate() {
     const rows = Array.from(document.querySelectorAll('ytmusic-responsive-list-item-renderer')).slice(0, 15);
-    if (!rows.length) return undefined;
+    if (!rows.length) {
+      if (this.attempts % 5 === 0) this.log('Candidate scan: search result rows not rendered yet');
+      return undefined;
+    }
     const target = RequestProcessor.getSearchTarget();
 
     const candidates = [];
+    let rowsWithVideo = 0;
+    let allowedRows = 0;
+    let matchingRows = 0;
     for (const row of rows) {
       const playbackTarget = this.findExactPlaybackTarget(row);
       if (!playbackTarget) continue;
+      rowsWithVideo++;
 
       const rowText = RequestProcessor.normalizeText(row.innerText || '');
       const durationSeconds = this.extractDurationSeconds(rowText);
@@ -888,9 +919,11 @@ class SearchAutoplay {
       if (!this.isCandidateAllowedForSearch(rowText, durationSeconds) || this.rejectedCandidateKeys.has(candidateKey)) {
         continue;
       }
+      allowedRows++;
       if (!this.isCandidateTargetMatch(rowMeta, target)) {
         continue;
       }
+      matchingRows++;
 
       const score = this.scoreRow(rowMeta, durationSeconds, target);
       candidates.push({
@@ -902,7 +935,22 @@ class SearchAutoplay {
       });
     }
 
-    if (!candidates.length) return undefined;
+    if (!candidates.length) {
+      if (this.attempts % 5 === 0) {
+        const sampleLinks = rows[0]
+          ? Array.from(rows[0].querySelectorAll('a'))
+              .map((link) => link.getAttribute('href') || link.href || '')
+              .filter(Boolean)
+              .slice(0, 5)
+          : [];
+        this.log(
+          `Candidate scan: rows=${rows.length}, videos=${rowsWithVideo}, allowed=${allowedRows}, ` +
+          `matched=${matchingRows}, target="${target?.rawQuery || 'missing'}", ` +
+          `sampleLinks=${JSON.stringify(sampleLinks)}`
+        );
+      }
+      return undefined;
+    }
     candidates.sort((a, b) => b.score - a.score);
 
     const best = candidates[0];
@@ -913,7 +961,7 @@ class SearchAutoplay {
   }
 
   findExactPlaybackTarget(row) {
-    const watchLinks = Array.from(row.querySelectorAll('a[href*="/watch?"]'));
+    const watchLinks = this.findWatchLinks(row);
     for (const link of watchLinks) {
       const href = link.getAttribute('href') || link.href || '';
       const videoId = this.getVideoIdFromUrl(href);
@@ -931,6 +979,13 @@ class SearchAutoplay {
     }
 
     return null;
+  }
+
+  findWatchLinks(row) {
+    return Array.from(row.querySelectorAll('a')).filter((link) => {
+      const href = link.getAttribute('href') || link.href || '';
+      return Boolean(this.getVideoIdFromUrl(href));
+    });
   }
 
   isCandidateAllowedForSearch(text, durationSeconds) {
@@ -977,7 +1032,7 @@ class SearchAutoplay {
   }
 
   extractRowMeta(row, rowText) {
-    const watchLinks = Array.from(row.querySelectorAll('a[href*="/watch?"]'));
+    const watchLinks = this.findWatchLinks(row);
     const titleElement =
       watchLinks.find((link) => (link.getAttribute('title') || link.textContent || '').trim()) ||
       row.querySelector('#title, .title, yt-formatted-string.title');
@@ -1381,9 +1436,10 @@ class RequestProcessor {
   static lastRequestTime = 0;
   static cooldown = 5000;
 
-  static markPendingSearchUrl(searchUrl) {
+  static markPendingSearchUrl(searchUrl, searchTarget = state.searchTarget) {
     state.pendingSearchUrl = searchUrl || null;
     setPendingSearchUrl(state.pendingSearchUrl);
+    setPendingSearchTarget(state.pendingSearchUrl ? searchTarget : null);
   }
 
   static clearPendingSearchUrl() {
@@ -1477,7 +1533,7 @@ class RequestProcessor {
       state.searchTarget = searchTarget;
       const searchQuery = this.buildSearchQuery(searchTarget);
       const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(searchQuery)}`;
-      this.markPendingSearchUrl(searchUrl);
+      this.markPendingSearchUrl(searchUrl, searchTarget);
 
       if (window.location.href === searchUrl) {
         this.log('Already on search page, starting autoplay');
@@ -1497,9 +1553,52 @@ class RequestProcessor {
     }
   }
 
-  static startSearchAutoplay() {
+  static async restoreSearchTarget() {
+    if (state.searchTarget?.rawQuery) return state.searchTarget;
+
+    const storedTarget = getPendingSearchTarget();
+    if (storedTarget?.rawQuery) {
+      state.searchTarget = storedTarget;
+      this.log(`Restored search target: "${storedTarget.rawQuery}"`);
+      return storedTarget;
+    }
+
+    try {
+      const response = await fetch(`${getServerUrl()}/status`, { headers: getServerHeaders() });
+      if (!response.ok) return null;
+      const status = await response.json();
+      if (!status?.activeRequest?.query) return null;
+
+      state.searchTarget = this.extractSearchTarget(status.activeRequest);
+      setPendingSearchTarget(state.searchTarget);
+      this.log(`Recovered active request target: "${state.searchTarget.rawQuery}"`);
+      return state.searchTarget;
+    } catch (error) {
+      console.error('Failed to restore active request target:', error);
+      return null;
+    }
+  }
+
+  static async startSearchAutoplay() {
     if (!this.shouldAutoplayForUrl(window.location.href)) {
       this.log('Skipping autoplay because this search page is not from a server request');
+      return;
+    }
+
+    const searchTarget = await this.restoreSearchTarget();
+    if (!searchTarget?.rawQuery) {
+      this.log('Cannot start autoplay because the active request target is unavailable');
+      DebugPanel.setStatus('Target request tidak ditemukan', true);
+      return;
+    }
+
+    const preferredQuery = this.buildSearchQuery(searchTarget);
+    const currentQuery = getSearchQueryValue(window.location.href);
+    if (preferredQuery && currentQuery !== preferredQuery) {
+      const preferredSearchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(preferredQuery)}`;
+      this.markPendingSearchUrl(preferredSearchUrl, searchTarget);
+      this.log(`Refining search query to: "${preferredQuery}"`);
+      window.location.href = preferredSearchUrl;
       return;
     }
 
@@ -1539,8 +1638,7 @@ class RequestProcessor {
     if (!target) return '';
     const title = target.title || '';
     const artist = target.artist || '';
-    const base = `${title} ${artist}`.trim() || target.rawQuery;
-    return `${base} official audio song`;
+    return `${title} ${artist}`.trim() || target.rawQuery;
   }
 
   static getSearchTarget() {
@@ -1992,6 +2090,7 @@ function initialize() {
 
   runtime.initialized = true;
   state.pendingSearchUrl = getPendingSearchUrl();
+  state.searchTarget = getPendingSearchTarget();
   console.log('Initializing YouTube Music Bridge...');
 
   runtime.videoMonitor = new VideoMonitor();
