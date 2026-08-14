@@ -70,6 +70,23 @@ test('falls back when Gemini returns low-confidence metadata', async () => {
   assert.equal(result.usedGemini, false);
 });
 
+test('reports a timeout when the Gemini request is aborted', async () => {
+  const abortError = new Error('request aborted');
+  abortError.name = 'AbortError';
+
+  const result = await normalizeSongWithGemini({
+    title: 'Numb',
+    artist: 'Linkin Park',
+    apiKey: 'test-key',
+    fetchImpl: async () => {
+      throw abortError;
+    }
+  });
+
+  assert.equal(result.usedGemini, false);
+  assert.equal(result.reason, 'Gemini timeout');
+});
+
 test('parses JSON wrapped in a markdown code fence', () => {
   assert.deepEqual(
     parseGeminiJson('```json\n{"title":"Numb","artist":"Linkin Park"}\n```'),

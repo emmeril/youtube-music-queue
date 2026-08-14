@@ -1,7 +1,7 @@
 'use strict';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 function cleanText(value, maxLength = 100) {
   if (typeof value !== 'string') return '';

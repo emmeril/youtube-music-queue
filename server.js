@@ -28,7 +28,7 @@ const DEFAULT_UNKNOWN = 'unknown';
 const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-const GEMINI_TIMEOUT_MS = Number.parseInt(process.env.GEMINI_TIMEOUT_MS || '5000', 10);
+const GEMINI_TIMEOUT_MS = Number.parseInt(process.env.GEMINI_TIMEOUT_MS || '15000', 10);
 
 const adminSessions = new Map();
 let lastUpdateSignature = null;
@@ -1159,6 +1159,7 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     return { success: false, error: validation.errors[0], details: validation.errors };
   }
 
+  const geminiStartedAt = Date.now();
   let geminiResult = await normalizeSongWithGemini({
     title: submittedTitle,
     artist: submittedArtist,
@@ -1166,6 +1167,10 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     model: GEMINI_MODEL,
     timeoutMs: GEMINI_TIMEOUT_MS
   });
+  const geminiElapsedMs = Date.now() - geminiStartedAt;
+  if (GEMINI_API_KEY && !geminiResult.usedGemini) {
+    console.warn(`[GEMINI] Normalization fallback after ${geminiElapsedMs}ms: ${geminiResult.reason}`);
+  }
   let normalizedQuery = `${geminiResult.title} - ${geminiResult.artist}`;
   const normalizedValidation = validateSongRequest(normalizedQuery);
   if (!normalizedValidation.isValid) {
@@ -1265,7 +1270,9 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
       enabled: Boolean(GEMINI_API_KEY),
       usedGemini: geminiResult.usedGemini,
       changed: geminiResult.changed,
-      model: geminiResult.usedGemini ? GEMINI_MODEL : null
+      model: geminiResult.usedGemini ? GEMINI_MODEL : null,
+      reason: geminiResult.reason,
+      elapsedMs: geminiElapsedMs
     },
     queuePosition,
     estimatedWait: calculateWaitTime(queuePosition, currentRemainingSeconds),
