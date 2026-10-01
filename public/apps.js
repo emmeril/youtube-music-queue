@@ -49,6 +49,7 @@
                 },
                 requestScheduleFormDirty: false,
                 isSavingRequestSchedule: false,
+                showRequestScheduleModal: false,
                 newRequest: {
                     title: '',
                     artist: ''
@@ -159,6 +160,7 @@
                     this.adminToken = null;
                     this.adminRole = null;
                     this.adminSessionExpires = null;
+                    this.showRequestScheduleModal = false;
 
                     localStorage.removeItem('adminToken');
                     localStorage.removeItem('adminRole');
@@ -708,6 +710,27 @@
                     return `Request user tersedia pukul ${startTime} sampai ${endTime} (${timeZone}).`;
                 },
 
+                openRequestScheduleModal() {
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa mengatur jam request', 'error');
+                        return;
+                    }
+
+                    this.requestScheduleForm = {
+                        enabled: Boolean(this.requestSchedule.enabled),
+                        startTime: this.requestSchedule.startTime || '09:00',
+                        endTime: this.requestSchedule.endTime || '22:00'
+                    };
+                    this.requestScheduleFormDirty = false;
+                    this.showRequestScheduleModal = true;
+                },
+
+                closeRequestScheduleModal() {
+                    if (this.isSavingRequestSchedule) return;
+                    this.showRequestScheduleModal = false;
+                    this.requestScheduleFormDirty = false;
+                },
+
                 async saveRequestSchedule() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
                         this.showToast('Hanya Super Admin yang bisa mengatur jam request', 'error');
@@ -735,6 +758,7 @@
                         if (result.ok) {
                             this.requestSchedule = result.data?.requestSchedule || this.requestSchedule;
                             this.requestScheduleFormDirty = false;
+                            this.showRequestScheduleModal = false;
                             this.showToast(result.data?.message || 'Jadwal request diperbarui', 'success');
                         } else {
                             this.handleApiFailure(result, 'Gagal menyimpan jadwal request');

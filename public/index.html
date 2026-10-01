@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        [x-cloak] { display: none !important; }
         body { font-family: 'Inter', sans-serif; }
         .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
         .glass-effect { 
@@ -443,42 +444,6 @@
                             </div>
                         </div>
 
-                        <fieldset x-show="isAdmin && adminRole === 'super'"
-                                  class="rounded-xl border border-gray-700 bg-gray-900/40 p-3 md:p-4">
-                            <legend class="px-1 text-sm font-semibold text-white">Jam request user</legend>
-                            <label class="mt-1 flex min-h-11 cursor-pointer items-center gap-3 text-sm text-gray-200">
-                                <input type="checkbox"
-                                       x-model="requestScheduleForm.enabled"
-                                       @change="requestScheduleFormDirty = true"
-                                       class="h-5 w-5 rounded border-gray-500 bg-gray-800 text-red-600 focus:ring-2 focus:ring-red-500">
-                                <span>Batasi request user berdasarkan jam</span>
-                            </label>
-                            <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <label class="block text-xs font-medium text-gray-300">
-                                    Mulai
-                                    <input type="time"
-                                           x-model="requestScheduleForm.startTime"
-                                           @input="requestScheduleFormDirty = true"
-                                           class="mt-1 min-h-11 w-full rounded-lg border border-gray-500 bg-gray-800 px-3 text-sm text-white focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/40">
-                                </label>
-                                <label class="block text-xs font-medium text-gray-300">
-                                    Selesai
-                                    <input type="time"
-                                           x-model="requestScheduleForm.endTime"
-                                           @input="requestScheduleFormDirty = true"
-                                           class="mt-1 min-h-11 w-full rounded-lg border border-gray-500 bg-gray-800 px-3 text-sm text-white focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/40">
-                                </label>
-                            </div>
-                            <p class="mt-2 text-xs text-gray-400">Zona waktu <span x-text="requestSchedule.timeZone"></span>. Jadwal seperti 20:00 sampai 02:00 akan melewati tengah malam.</p>
-                            <button type="button"
-                                    @click="saveRequestSchedule()"
-                                    :disabled="isSavingRequestSchedule || !requestScheduleFormDirty"
-                                    class="mt-3 min-h-11 w-full rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:cursor-not-allowed disabled:opacity-50">
-                                <i class="fas fa-save mr-2" aria-hidden="true"></i>
-                                <span x-text="isSavingRequestSchedule ? 'Menyimpan...' : 'Simpan jadwal'"></span>
-                            </button>
-                        </fieldset>
-
                         <!-- Priority Request Checkbox (Admin & Super Admin) -->
                         <div x-show="isAdmin" class="flex items-center gap-2 mb-2 md:mb-3">
                             <input type="checkbox" x-model="priorityRequest" id="priority" class="w-4 h-4 text-yellow-600 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
@@ -815,19 +780,27 @@
 
         <!-- Stats Panel -->
         <div class="mt-6 md:mt-8 glass-effect rounded-2xl p-4 md:p-6">
-            <div class="flex items-center justify-between gap-3 mb-4 md:mb-6">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
                 <h2 class="text-lg md:text-xl font-bold text-white">
                     <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik Sistem
                 </h2>
-                <div x-show="isAdmin && adminRole === 'super'" class="flex items-center gap-2">
+                <div x-show="isAdmin && adminRole === 'super'" class="flex flex-wrap items-center gap-2">
+                    <button @click="openRequestScheduleModal()"
+                            type="button"
+                            class="h-11 px-3 text-xs md:text-sm bg-blue-700 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                        <i class="fas fa-clock" aria-hidden="true"></i>
+                        <span>Jam Request User</span>
+                    </button>
                     <button @click="showPasswordManagementModal = true"
-                            class="px-3 py-2 text-xs md:text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors flex items-center gap-2">
-                        <i class="fas fa-key"></i>
+                            type="button"
+                            class="h-11 px-3 text-xs md:text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-yellow-400">
+                        <i class="fas fa-key" aria-hidden="true"></i>
                         <span>Rubah Password</span>
                     </button>
                     <button @click="resetSystemStats()"
-                            class="px-3 py-2 text-xs md:text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2">
-                        <i class="fas fa-rotate-left"></i>
+                            type="button"
+                            class="h-11 px-3 text-xs md:text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-400">
+                        <i class="fas fa-rotate-left" aria-hidden="true"></i>
                         <span>Reset Statistik</span>
                     </button>
                 </div>
@@ -880,6 +853,85 @@
                 </div>
             </div>
         </footer>
+
+        <!-- Request Schedule Modal -->
+        <div x-show="showRequestScheduleModal && isAdmin && adminRole === 'super'"
+             x-cloak
+             @keydown.escape.window="closeRequestScheduleModal()"
+             @click.self="closeRequestScheduleModal()"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/80 p-4"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="request-schedule-title">
+            <div class="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-5 md:p-6">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 id="request-schedule-title" class="text-xl md:text-2xl font-bold text-white">Jam Request User</h2>
+                        <p class="mt-1 text-sm text-gray-300">Atur waktu harian untuk menerima request dari user biasa.</p>
+                    </div>
+                    <button type="button"
+                            @click="closeRequestScheduleModal()"
+                            :disabled="isSavingRequestSchedule"
+                            class="min-h-11 min-w-11 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
+                            aria-label="Tutup pengaturan jam request">
+                        <i class="fas fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+
+                <div class="mt-5 space-y-4">
+                    <label class="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-gray-100">
+                        <input type="checkbox"
+                               x-model="requestScheduleForm.enabled"
+                               @change="requestScheduleFormDirty = true"
+                               class="h-5 w-5 rounded border-gray-500 bg-gray-900 text-blue-600 focus:ring-2 focus:ring-blue-400">
+                        <span>Batasi request user berdasarkan jam</span>
+                    </label>
+
+                    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <label class="block text-sm font-medium text-gray-200">
+                            Jam mulai
+                            <input type="time"
+                                   x-model="requestScheduleForm.startTime"
+                                   @input="requestScheduleFormDirty = true"
+                                   class="mt-2 min-h-11 w-full rounded-lg border border-gray-500 bg-gray-900 px-3 text-base text-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40">
+                        </label>
+                        <label class="block text-sm font-medium text-gray-200">
+                            Jam selesai
+                            <input type="time"
+                                   x-model="requestScheduleForm.endTime"
+                                   @input="requestScheduleFormDirty = true"
+                                   class="mt-2 min-h-11 w-full rounded-lg border border-gray-500 bg-gray-900 px-3 text-base text-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40">
+                        </label>
+                    </div>
+
+                    <p class="text-xs leading-5 text-gray-300">
+                        Zona waktu <span x-text="requestSchedule.timeZone"></span>. Rentang seperti 20:00 sampai 02:00 berlaku melewati tengah malam. Admin tetap dapat menambahkan request di luar jadwal.
+                    </p>
+
+                    <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+                        <button type="button"
+                                @click="closeRequestScheduleModal()"
+                                :disabled="isSavingRequestSchedule"
+                                class="min-h-11 rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:opacity-50">
+                            Batal
+                        </button>
+                        <button type="button"
+                                @click="saveRequestSchedule()"
+                                :disabled="isSavingRequestSchedule || !requestScheduleFormDirty"
+                                class="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-50">
+                            <i class="fas fa-save mr-2" aria-hidden="true"></i>
+                            <span x-text="isSavingRequestSchedule ? 'Menyimpan...' : 'Simpan Jadwal'"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Admin Login Modal -->
         <div x-show="showAdminLogin" 
