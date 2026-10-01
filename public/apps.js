@@ -33,6 +33,22 @@
                 },
                 queueLimit: 100,
                 geminiNormalizationEnabled: false,
+                requestSchedule: {
+                    enabled: false,
+                    startTime: '09:00',
+                    endTime: '22:00',
+                    timeZone: 'Asia/Jakarta',
+                    isOpen: true,
+                    crossesMidnight: false,
+                    nextOpenTime: null
+                },
+                requestScheduleForm: {
+                    enabled: false,
+                    startTime: '09:00',
+                    endTime: '22:00'
+                },
+                requestScheduleFormDirty: false,
+                isSavingRequestSchedule: false,
                 newRequest: {
                     title: '',
                     artist: ''
@@ -249,6 +265,16 @@
                             this.queueLimit = statusData.queueLimit || 100;
                             this.randomQueueEnabled = Boolean(statusData.randomQueueEnabled);
                             this.randomQueue = statusData.randomQueue || this.randomQueue;
+                            if (statusData.requestSchedule) {
+                                this.requestSchedule = statusData.requestSchedule;
+                                if (!this.requestScheduleFormDirty) {
+                                    this.requestScheduleForm = {
+                                        enabled: Boolean(statusData.requestSchedule.enabled),
+                                        startTime: statusData.requestSchedule.startTime || '09:00',
+                                        endTime: statusData.requestSchedule.endTime || '22:00'
+                                    };
+                                }
+                            }
                         }
                         
                         if (queueResult.ok) {
@@ -362,6 +388,11 @@
                 
                 // Add new request
                 async addRequest() {
+                    if (this.isRegularUserScheduleClosed()) {
+                        this.showToast(this.getRequestScheduleClosedMessage(), 'warning');
+                        return;
+                    }
+
                     // Validasi input
                     if (!this.validateInput()) {
                         return;
@@ -663,6 +694,55 @@
                         }
                     } catch (error) {
                         this.showToast('Gagal mengubah mode antrian', 'error');
+                    }
+                },
+
+                isRegularUserScheduleClosed() {
+                    return !this.isAdmin && this.requestSchedule.enabled && !this.requestSchedule.isOpen;
+                },
+
+                getRequestScheduleClosedMessage() {
+                    const startTime = this.requestSchedule.startTime || '00:00';
+                    const endTime = this.requestSchedule.endTime || '00:00';
+                    const timeZone = this.requestSchedule.timeZone || 'Asia/Jakarta';
+                    return `Request user tersedia pukul ${startTime} sampai ${endTime} (${timeZone}).`;
+                },
+
+                async saveRequestSchedule() {
+                    if (!this.isAdmin || this.adminRole !== 'super') {
+                        this.showToast('Hanya Super Admin yang bisa mengatur jam request', 'error');
+                        return;
+                    }
+
+                    const { enabled, startTime, endTime } = this.requestScheduleForm;
+                    if (!startTime || !endTime) {
+                        this.showToast('Jam mulai dan selesai wajib diisi', 'error');
+                        return;
+                    }
+                    if (startTime === endTime) {
+                        this.showToast('Jam mulai dan selesai tidak boleh sama', 'error');
+                        return;
+                    }
+
+                    this.isSavingRequestSchedule = true;
+                    try {
+                        const result = await this.apiRequest('/admin/request-schedule', {
+                            method: 'POST',
+                            headers: this.getAdminHeaders(true),
+                            body: JSON.stringify({ enabled, startTime, endTime })
+                        });
+
+                        if (result.ok) {
+                            this.requestSchedule = result.data?.requestSchedule || this.requestSchedule;
+                            this.requestScheduleFormDirty = false;
+                            this.showToast(result.data?.message || 'Jadwal request diperbarui', 'success');
+                        } else {
+                            this.handleApiFailure(result, 'Gagal menyimpan jadwal request');
+                        }
+                    } catch (error) {
+                        this.showToast('Gagal menyimpan jadwal request', 'error');
+                    } finally {
+                        this.isSavingRequestSchedule = false;
                     }
                 },
 

@@ -6,11 +6,18 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Sequelize, DataTypes } = require('sequelize');
 const { normalizeSongWithGemini, DEFAULT_MODEL: DEFAULT_GEMINI_MODEL } = require('./gemini-song-normalizer');
+const {
+  DEFAULT_REQUEST_SCHEDULE,
+  DEFAULT_REQUEST_TIMEZONE,
+  getRequestScheduleStatus,
+  normalizeRequestSchedule,
+  validateRequestSchedule
+} = require('./request-schedule');
 
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
 const PORT = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 4786;
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -29,6 +36,7 @@ const DEFAULT_UNKNOWN_ARTIST = 'Unknown Artist';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
 const GEMINI_TIMEOUT_MS = Number.parseInt(process.env.GEMINI_TIMEOUT_MS || '15000', 10);
+const REQUEST_TIMEZONE = process.env.REQUEST_TIMEZONE || DEFAULT_REQUEST_TIMEZONE;
 
 const adminSessions = new Map();
 let lastUpdateSignature = null;
@@ -291,6 +299,7 @@ let state = {
     totalPlayTime: 0
   },
   randomQueueEnabled: false,
+  requestSchedule: { ...DEFAULT_REQUEST_SCHEDULE },
   songEndTimeout: null,
   requestStartTime: 0,
   originalLockDuration: 0
@@ -944,6 +953,10 @@ function extractRandomQueueEnabled(statsPayload) {
   return normalizeBoolean(statsPayload._queueSettings?.randomQueueEnabled);
 }
 
+function extractRequestSchedule(statsPayload) {
+  return normalizeRequestSchedule(statsPayload?._queueSettings?.requestSchedule);
+}
+
 function sanitizeStats(statsPayload) {
   const safeStats = statsPayload && typeof statsPayload === 'object' ? { ...statsPayload } : {};
   delete safeStats._queueSettings;
@@ -958,7 +971,8 @@ function buildPersistedStats() {
   return {
     ...state.stats,
     _queueSettings: {
-      randomQueueEnabled: state.randomQueueEnabled
+      randomQueueEnabled: state.randomQueueEnabled,
+      requestSchedule: state.requestSchedule
     }
   };
 }
@@ -978,6 +992,25 @@ function getRandomQueueMeta() {
       : 'Antrian diputar sesuai urutan masuk.',
     shortLabel: state.randomQueueEnabled ? `Fair random ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
   };
+}
+
+function getPublicRequestScheduleStatus(now = new Date()) {
+  return getRequestScheduleStatus(state.requestSchedule, {
+    now,
+    timeZone: REQUEST_TIMEZONE
+  });
+}
+
+async function getOptionalAdminRole(req) {
+  const passwordHeader = req.headers['x-admin-password'];
+  if (passwordHeader) {
+    const validation = await validateAdminPassword(passwordHeader);
+    return validation.ok ? validation.session.role : null;
+  }
+
+  const tokenHeader = req.headers['x-admin-token'];
+  const validation = validateAdminSession(tokenHeader, 'Request schedule bypass');
+  return validation.ok ? validation.session.role : null;
 }
 
 function pickWeightedRandomIndex(poolSize) {
@@ -1355,6 +1388,7 @@ async function loadData() {
       state.requestLockUntil = appState.requestLockUntil || 0;
       state.currentSong = appState.currentSong || state.currentSong;
       state.randomQueueEnabled = extractRandomQueueEnabled(appState.stats);
+      state.requestSchedule = extractRequestSchedule(appState.stats);
       state.stats = sanitizeStats(appState.stats);
       state.requestStartTime = appState.requestStartTime || 0;
       state.originalLockDuration = appState.originalLockDuration || 0;
@@ -1871,6 +1905,7 @@ app.get('/status', (req, res) => {
     remainingSlots,
     stats: state.stats,
     randomQueueEnabled: state.randomQueueEnabled,
+    requestSchedule: getPublicRequestScheduleStatus(new Date(now)),
     lockInfo: {
       basedOnSongDuration: state.currentSong.duration,
       originalLock: state.originalLockDuration,
@@ -1940,10 +1975,22 @@ app.get('/get-request', requireBridgeClient, async (req, res) => {
 
 app.post('/request-song', async (req, res) => {
   try {
+    const adminRole = await getOptionalAdminRole(req);
+    const requestSchedule = getPublicRequestScheduleStatus();
+    if (!adminRole && !requestSchedule.isOpen) {
+      return sendError(
+        res,
+        403,
+        'REQUEST_SCHEDULE_CLOSED',
+        `Request lagu untuk user dibuka pukul ${requestSchedule.startTime} sampai ${requestSchedule.endTime}`,
+        { requestSchedule }
+      );
+    }
+
     return handleSongRequestEnqueue(req, res, {
       position: 'last',
       isPriority: false,
-      addedByAdmin: false,
+      addedByAdmin: Boolean(adminRole),
       successMessage: 'Request berhasil ditambahkan',
       logLabel: 'Request added'
     });
@@ -2069,6 +2116,34 @@ app.post('/admin/queue-random-mode', requireSuperAdmin, async (req, res) => {
       message: `Mode antrian acak ${state.randomQueueEnabled ? 'diaktifkan' : 'dimatikan'}`,
       randomQueueEnabled: state.randomQueueEnabled,
       randomQueue: getRandomQueueMeta()
+    });
+  } catch (error) {
+    return sendInternalError(res, req.path, error);
+  }
+});
+
+app.post('/admin/request-schedule', requireSuperAdmin, async (req, res) => {
+  try {
+    const scheduleInput = {
+      enabled: normalizeBoolean(req.body?.enabled),
+      startTime: normalizeInput(req.body?.startTime),
+      endTime: normalizeInput(req.body?.endTime)
+    };
+    const validation = validateRequestSchedule(scheduleInput);
+    if (!validation.ok) {
+      return sendError(res, 400, 'INVALID_REQUEST_SCHEDULE', validation.message);
+    }
+
+    state.requestSchedule = normalizeRequestSchedule(scheduleInput);
+    await saveAppState();
+
+    const requestSchedule = getPublicRequestScheduleStatus();
+    return res.json({
+      success: true,
+      message: state.requestSchedule.enabled
+        ? `Request user dibatasi pukul ${state.requestSchedule.startTime} sampai ${state.requestSchedule.endTime}`
+        : 'Pembatasan jam request user dimatikan',
+      requestSchedule
     });
   } catch (error) {
     return sendInternalError(res, req.path, error);
@@ -2260,6 +2335,7 @@ app.get('/queue-info', (req, res) => {
     queue: queueWithEstimate,
     queueLength: state.requestQueue.length,
     randomQueueEnabled: state.randomQueueEnabled,
+    requestSchedule: getPublicRequestScheduleStatus(new Date(now)),
     randomQueue: getRandomQueueMeta(),
     totalQueueTime: totalQueueMinutes,
     ...queueMeta
@@ -2316,7 +2392,7 @@ app.get('/version', (req, res) => {
   res.json({
     version: APP_VERSION,
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle', 'gemini-song-normalization'],
+    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle', 'gemini-song-normalization', 'request-time-schedule'],
     geminiNormalization: {
       enabled: Boolean(GEMINI_API_KEY),
       model: GEMINI_MODEL
@@ -2447,5 +2523,3 @@ process.on('SIGINT', async () => {
     process.exit(0);
   }
 });
-
-
