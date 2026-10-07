@@ -14,6 +14,11 @@ test('returns the original metadata when no API key is configured', async () => 
   assert.equal(result.artist, 'Taylor Swift');
   assert.equal(result.usedGemini, false);
   assert.equal(result.changed, false);
+  assert.deepEqual(result.fairRandom, {
+    category: 'unclassified',
+    weight: 50,
+    source: 'fallback'
+  });
 });
 
 test('uses valid structured metadata returned by Gemini', async () => {
@@ -25,7 +30,7 @@ test('uses valid structured metadata returned by Gemini', async () => {
       json: async () => ({
         candidates: [{
           content: {
-            parts: [{ text: '{"title":"Blinding Lights","artist":"The Weeknd","confidence":0.98}' }]
+            parts: [{ text: '{"title":"Blinding Lights","artist":"The Weeknd","confidence":0.98,"fairRandomCategory":"western","fairRandomWeight":44}' }]
           }
         }]
       })
@@ -43,7 +48,16 @@ test('uses valid structured metadata returned by Gemini', async () => {
   assert.equal(result.artist, 'The Weeknd');
   assert.equal(result.usedGemini, true);
   assert.equal(result.changed, true);
+  assert.deepEqual(result.fairRandom, {
+    category: 'western',
+    weight: 44,
+    source: 'gemini'
+  });
   assert.equal(requestBody.generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(
+    requestBody.generationConfig.responseSchema.required,
+    ['title', 'artist', 'confidence', 'fairRandomCategory', 'fairRandomWeight']
+  );
 });
 
 test('falls back when Gemini returns low-confidence metadata', async () => {
@@ -52,7 +66,7 @@ test('falls back when Gemini returns low-confidence metadata', async () => {
     json: async () => ({
       candidates: [{
         content: {
-          parts: [{ text: '{"title":"Unknown Song","artist":"Unknown Artist","confidence":0.2}' }]
+          parts: [{ text: '{"title":"Unknown Song","artist":"Unknown Artist","confidence":0.2,"fairRandomCategory":"western","fairRandomWeight":45}' }]
         }
       }]
     })
@@ -68,6 +82,35 @@ test('falls back when Gemini returns low-confidence metadata', async () => {
   assert.equal(result.title, 'Original Title');
   assert.equal(result.artist, 'Original Artist');
   assert.equal(result.usedGemini, false);
+  assert.equal(result.fairRandom.source, 'fallback');
+});
+
+test('keeps normalized metadata and falls back only the invalid fair random profile', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{ text: '{"title":"Sewu Kutho","artist":"Didi Kempot","confidence":0.95,"fairRandomCategory":"unknown","fairRandomWeight":99}' }]
+        }
+      }]
+    })
+  });
+
+  const result = await normalizeSongWithGemini({
+    title: 'sewu kuto',
+    artist: 'didi kempot',
+    apiKey: 'test-key',
+    fetchImpl
+  });
+
+  assert.equal(result.usedGemini, true);
+  assert.equal(result.title, 'Sewu Kutho');
+  assert.deepEqual(result.fairRandom, {
+    category: 'unclassified',
+    weight: 50,
+    source: 'fallback'
+  });
 });
 
 test('reports a timeout when the Gemini request is aborted', async () => {

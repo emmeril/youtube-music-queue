@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  DEFAULT_FAIR_RANDOM_PROFILE,
+  buildGeminiFairRandomProfile
+} = require('./fair-random');
+
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -18,6 +23,7 @@ function buildFallback(title, artist, reason = 'Gemini tidak dikonfigurasi') {
     artist: cleanText(artist),
     usedGemini: false,
     changed: false,
+    fairRandom: { ...DEFAULT_FAIR_RANDOM_PROFILE },
     reason
   };
 }
@@ -81,6 +87,10 @@ async function normalizeSongWithGemini({ title, artist, apiKey, model, timeoutMs
     'Pertahankan input jika sudah benar; boleh memperbaiki kapitalisasi, typo kecil, urutan, atau mengambil nama resmi yang sangat yakin.',
     'Jangan mengarang lagu/artis. Jika ragu, gunakan nilai input apa adanya.',
     'Isi confidence dengan angka 0 sampai 1 berdasarkan keyakinan Anda.',
+    'Klasifikasikan lagu ke tepat satu fairRandomCategory dan tentukan sendiri fairRandomWeight berupa bilangan bulat.',
+    'Gunakan rentang: dangdut_koplo 76-100, indonesia 51-75, western 26-50, korean_kpop 1-25.',
+    'Dangdut atau koplo selalu masuk dangdut_koplo. Lagu Indonesia selain dangdut masuk indonesia. Lagu Korea atau K-pop masuk korean_kpop. Lagu asing lainnya masuk western.',
+    'Pilih angka di dalam rentang berdasarkan seberapa kuat lagu cocok dengan kategorinya; jangan selalu memakai nilai tengah.',
     `Judul input: ${JSON.stringify(inputTitle)}`,
     `Artis input: ${JSON.stringify(inputArtist)}`
   ].join('\n');
@@ -102,9 +112,14 @@ async function normalizeSongWithGemini({ title, artist, apiKey, model, timeoutMs
             properties: {
               title: { type: 'STRING' },
               artist: { type: 'STRING' },
-              confidence: { type: 'NUMBER' }
+              confidence: { type: 'NUMBER' },
+              fairRandomCategory: {
+                type: 'STRING',
+                enum: ['dangdut_koplo', 'indonesia', 'western', 'korean_kpop']
+              },
+              fairRandomWeight: { type: 'INTEGER' }
             },
-            required: ['title', 'artist', 'confidence']
+            required: ['title', 'artist', 'confidence', 'fairRandomCategory', 'fairRandomWeight']
           }
         }
       })
@@ -117,12 +132,14 @@ async function normalizeSongWithGemini({ title, artist, apiKey, model, timeoutMs
 
     const resultTitle = cleanText(parsed.title);
     const resultArtist = cleanText(parsed.artist);
+    const fairRandom = buildGeminiFairRandomProfile(parsed.fairRandomCategory, parsed.fairRandomWeight);
     return {
       title: resultTitle,
       artist: resultArtist,
       usedGemini: true,
       changed: resultTitle !== inputTitle || resultArtist !== inputArtist,
       confidence: Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : null,
+      fairRandom,
       reason: 'Gemini berhasil menormalisasi metadata'
     };
   } catch (error) {

@@ -14,6 +14,12 @@ const {
   validateRequestSchedule
 } = require('./request-schedule');
 const { getPriorityStatus } = require('./priority-policy');
+const {
+  DEFAULT_FAIR_RANDOM_PROFILE,
+  buildFairRandomSelectionWeights,
+  getRequestFairRandomProfile,
+  pickWeightedIndex
+} = require('./fair-random');
 
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
@@ -69,6 +75,9 @@ const Request = sequelize.define('Request', {
   originalQuery: { type: DataTypes.STRING },
   isPriority: { type: DataTypes.BOOLEAN, defaultValue: false },
   addedByAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
+  fairRandomCategory: { type: DataTypes.STRING, allowNull: false, defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.category },
+  fairRandomWeight: { type: DataTypes.INTEGER, allowNull: false, defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.weight },
+  fairRandomSource: { type: DataTypes.STRING, allowNull: false, defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.source },
   queueOrder: { type: DataTypes.INTEGER, allowNull: false }
 });
 
@@ -921,6 +930,35 @@ async function seedEnvAdminCredentials() {
   }
 }
 
+async function ensureRequestFairRandomColumns() {
+  const queryInterface = sequelize.getQueryInterface();
+  const tableName = Request.getTableName();
+  const existingColumns = await queryInterface.describeTable(tableName);
+  const requiredColumns = {
+    fairRandomCategory: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.category
+    },
+    fairRandomWeight: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.weight
+    },
+    fairRandomSource: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: DEFAULT_FAIR_RANDOM_PROFILE.source
+    }
+  };
+
+  for (const [columnName, definition] of Object.entries(requiredColumns)) {
+    if (!existingColumns[columnName]) {
+      await queryInterface.addColumn(tableName, columnName, definition);
+    }
+  }
+}
+
 function normalizeBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
@@ -992,7 +1030,7 @@ function getRandomQueueMeta() {
     mode: state.randomQueueEnabled ? 'fair-random' : 'fifo',
     poolSize: FAIR_RANDOM_POOL_SIZE,
     description: state.randomQueueEnabled
-      ? `Lagu berikutnya dipilih acak dari ${FAIR_RANDOM_POOL_SIZE} antrian teratas. Request yang paling lama menunggu punya peluang terbesar, request baru tidak memotong antrean lama, dan priority tetap didahulukan.`
+      ? `Dari ${FAIR_RANDOM_POOL_SIZE} request terlama, Gemini mengatur bobot dengan urutan dangdut/koplo, lagu Indonesia, lagu Barat, lalu Korea/K-pop. Lama menunggu tetap menambah peluang, dan priority selalu didahulukan.`
       : 'Antrian diputar sesuai urutan masuk.',
     shortLabel: state.randomQueueEnabled ? `Fair random ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
   };
@@ -1015,25 +1053,6 @@ async function getOptionalAdminRole(req) {
   const tokenHeader = req.headers['x-admin-token'];
   const validation = validateAdminSession(tokenHeader, 'Request schedule bypass');
   return validation.ok ? validation.session.role : null;
-}
-
-function pickWeightedRandomIndex(poolSize) {
-  if (poolSize <= 1) return 0;
-
-  let totalWeight = 0;
-  for (let index = 0; index < poolSize; index++) {
-    totalWeight += (poolSize - index);
-  }
-
-  let randomWeight = Math.random() * totalWeight;
-  for (let index = 0; index < poolSize; index++) {
-    randomWeight -= (poolSize - index);
-    if (randomWeight < 0) {
-      return index;
-    }
-  }
-
-  return 0;
 }
 
 function insertRequestIntoQueue(newRequest, position) {
@@ -1076,7 +1095,10 @@ function pickNextQueueRequest() {
     })
     .slice(0, FAIR_RANDOM_POOL_SIZE);
 
-  const selectedCandidateIndex = pickWeightedRandomIndex(weightedCandidates.length);
+  const selectionWeights = buildFairRandomSelectionWeights(
+    weightedCandidates.map((candidate) => candidate.request)
+  );
+  const selectedCandidateIndex = pickWeightedIndex(selectionWeights);
   const selectedQueueIndex = weightedCandidates[selectedCandidateIndex].index;
   return state.requestQueue.splice(selectedQueueIndex, 1)[0];
 }
@@ -1165,6 +1187,7 @@ function addOfficialToTitle(query) {
 function createRequestObject(query, ip, userAgent, isPriority = false, addedByAdmin = false, originalQuery = query, songFields = null) {
   const queryWithOfficial = addOfficialToTitle(query);
   const parsed = parseSongQuery(queryWithOfficial);
+  const fairRandom = songFields?.fairRandom || DEFAULT_FAIR_RANDOM_PROFILE;
   return {
     id: generateId(),
     query: queryWithOfficial,
@@ -1176,7 +1199,10 @@ function createRequestObject(query, ip, userAgent, isPriority = false, addedByAd
     userAgent: userAgent || DEFAULT_UNKNOWN,
     originalQuery,
     isPriority,
-    addedByAdmin
+    addedByAdmin,
+    fairRandomCategory: fairRandom.category,
+    fairRandomWeight: fairRandom.weight,
+    fairRandomSource: fairRandom.source
   };
 }
 
@@ -1304,7 +1330,11 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
     isPriority,
     addedByAdmin,
     inputQuery,
-    { title: parsedQuery.title, artist: parsedQuery.artist }
+    {
+      title: parsedQuery.title,
+      artist: parsedQuery.artist,
+      fairRandom: geminiResult.fairRandom
+    }
   );
   
   const queuePosition = insertRequestIntoQueue(newRequest, position);
@@ -1323,7 +1353,8 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
       changed: geminiResult.changed,
       model: geminiResult.usedGemini ? GEMINI_MODEL : null,
       reason: geminiResult.reason,
-      elapsedMs: geminiElapsedMs
+      elapsedMs: geminiElapsedMs,
+      fairRandom: geminiResult.fairRandom
     },
     queuePosition,
     estimatedWait: calculateWaitTime(queuePosition, currentRemainingSeconds),
@@ -1382,23 +1413,30 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
 async function loadData() {
   try {
     await sequelize.sync();
+    await ensureRequestFairRandomColumns();
     await seedEnvAdminCredentials();
 
     // Load antrian
     const requests = await Request.findAll({ order: [['queueOrder', 'ASC']] });
-    state.requestQueue = requests.map(r => ({
-      id: r.id,
-      query: r.query,
-      time: r.time,
-      status: r.status,
-      addedBy: r.addedBy,
-      title: r.title,
-      artist: r.artist,
-      userAgent: r.userAgent,
-      originalQuery: r.originalQuery,
-      isPriority: r.isPriority,
-      addedByAdmin: r.addedByAdmin
-    }));
+    state.requestQueue = requests.map(r => {
+      const fairRandom = getRequestFairRandomProfile(r);
+      return {
+        id: r.id,
+        query: r.query,
+        time: r.time,
+        status: r.status,
+        addedBy: r.addedBy,
+        title: r.title,
+        artist: r.artist,
+        userAgent: r.userAgent,
+        originalQuery: r.originalQuery,
+        isPriority: r.isPriority,
+        addedByAdmin: r.addedByAdmin,
+        fairRandomCategory: fairRandom.category,
+        fairRandomWeight: fairRandom.weight,
+        fairRandomSource: fairRandom.source
+      };
+    });
 
     // Load state global
     const appState = await AppState.findByPk('state');
@@ -1518,6 +1556,9 @@ function getQueueSignature() {
     originalQuery: req.originalQuery,
     isPriority: Boolean(req.isPriority),
     addedByAdmin: Boolean(req.addedByAdmin),
+    fairRandomCategory: req.fairRandomCategory,
+    fairRandomWeight: req.fairRandomWeight,
+    fairRandomSource: req.fairRandomSource,
     queueOrder: index
   })));
 }
@@ -1578,20 +1619,26 @@ async function persistRequestsNow() {
     return;
   }
 
-  const requestsToInsert = state.requestQueue.map((req, index) => ({
-    id: req.id,
-    query: req.query,
-    time: req.time,
-    status: req.status || 'pending',
-    addedBy: req.addedBy,
-    title: req.title,
-    artist: req.artist,
-    userAgent: req.userAgent,
-    originalQuery: req.originalQuery,
-    isPriority: req.isPriority || false,
-    addedByAdmin: req.addedByAdmin || false,
-    queueOrder: index
-  }));
+  const requestsToInsert = state.requestQueue.map((req, index) => {
+    const fairRandom = getRequestFairRandomProfile(req);
+    return {
+      id: req.id,
+      query: req.query,
+      time: req.time,
+      status: req.status || 'pending',
+      addedBy: req.addedBy,
+      title: req.title,
+      artist: req.artist,
+      userAgent: req.userAgent,
+      originalQuery: req.originalQuery,
+      isPriority: req.isPriority || false,
+      addedByAdmin: req.addedByAdmin || false,
+      fairRandomCategory: fairRandom.category,
+      fairRandomWeight: fairRandom.weight,
+      fairRandomSource: fairRandom.source,
+      queueOrder: index
+    };
+  });
 
   await sequelize.transaction(async (transaction) => {
     await Request.destroy({ where: {}, transaction });
@@ -2425,7 +2472,7 @@ app.get('/version', (req, res) => {
   res.json({
     version: APP_VERSION,
     buildTime: Date.now(),
-    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle', 'gemini-song-normalization', 'request-time-schedule'],
+    features: ['queue-limit-100', 'multi-level-admin', 'auto-refresh', 'official-tag-automatic', 'random-queue-toggle', 'gemini-song-normalization', 'gemini-weighted-fair-random', 'request-time-schedule'],
     geminiNormalization: {
       enabled: Boolean(GEMINI_API_KEY),
       model: GEMINI_MODEL
