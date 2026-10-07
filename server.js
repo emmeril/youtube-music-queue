@@ -13,6 +13,7 @@ const {
   normalizeRequestSchedule,
   validateRequestSchedule
 } = require('./request-schedule');
+const { getPriorityStatus } = require('./priority-policy');
 
 const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
@@ -787,13 +788,16 @@ function classifyQueueRequestError(error = '') {
 }
 
 function sendQueueRequestFailure(res, result) {
-  const { status, code } = classifyQueueRequestError(result.error);
+  const classifiedError = classifyQueueRequestError(result.error);
+  const status = result.status || classifiedError.status;
+  const code = result.code || classifiedError.code;
   return sendError(res, status, code, result.error, {
     details: result.details || null,
     queueLimit: result.queueLimit,
     cooldown: result.cooldown,
     artist: result.artist,
-    limit: result.limit
+    limit: result.limit,
+    priorityCount: result.priorityCount
   });
 }
 
@@ -1177,7 +1181,7 @@ function createRequestObject(query, ip, userAgent, isPriority = false, addedByAd
 }
 
 // Fungsi untuk menambahkan request ke antrian (dengan validasi dan pengecekan duplicate)
-async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false, songInput = null) {
+async function addRequestToQueue(query, ip, userAgent, position = 'last', isPriority = false, addedByAdmin = false, songInput = null, adminRole = null) {
   const submittedQuery = normalizeInput(query);
   const parsedSubmittedQuery = parseSongQuery(submittedQuery);
   const submittedTitle = normalizeInput(songInput?.title) || parsedSubmittedQuery.title;
@@ -1278,6 +1282,20 @@ async function addRequestToQueue(query, ip, userAgent, position = 'last', isPrio
       limit: MAX_REQUESTS_PER_ARTIST
     };
   }
+
+  if (isPriority) {
+    const priorityStatus = getPriorityStatus(adminRole, state.requestQueue);
+    if (!priorityStatus.allowed) {
+      return {
+        success: false,
+        status: 409,
+        code: 'ADMIN_PRIORITY_LIMIT_REACHED',
+        error: `Admin hanya dapat memiliki maksimal ${priorityStatus.limit} lagu priority dalam antrean`,
+        limit: priorityStatus.limit,
+        priorityCount: priorityStatus.priorityCount
+      };
+    }
+  }
   
   const newRequest = createRequestObject(
     normalizedQuery,
@@ -1336,7 +1354,8 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
     position,
     isPriority,
     addedByAdmin,
-    { title, artist }
+    { title, artist },
+    req.adminRole
   );
 
   if (!result.success) {
@@ -2062,6 +2081,20 @@ app.post('/admin/request-priority/:id', requireAdmin, async (req, res) => {
         message: 'Request sudah berstatus priority',
         request: requestToPromote
       });
+    }
+
+    const priorityStatus = getPriorityStatus(req.adminRole, state.requestQueue);
+    if (!priorityStatus.allowed) {
+      return sendError(
+        res,
+        409,
+        'ADMIN_PRIORITY_LIMIT_REACHED',
+        `Admin hanya dapat memiliki maksimal ${priorityStatus.limit} lagu priority dalam antrean`,
+        {
+          limit: priorityStatus.limit,
+          priorityCount: priorityStatus.priorityCount
+        }
+      );
     }
 
     requestToPromote.isPriority = true;
