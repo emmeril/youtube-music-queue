@@ -28,7 +28,7 @@
                     enabled: false,
                     mode: 'fifo',
                     poolSize: 20,
-                    description: 'Antrian diputar sesuai urutan masuk.',
+                    description: 'Antrean diputar sesuai urutan.',
                     shortLabel: 'FIFO'
                 },
                 queueLimit: 100,
@@ -167,7 +167,7 @@
                     localStorage.removeItem('adminExpires');
 
                     if (showExpiredToast) {
-                        this.showToast('Session admin telah kadaluarsa', 'warning');
+                        this.showToast('Sesi admin berakhir', 'warning');
                     }
                 },
 
@@ -183,7 +183,7 @@
                     return result?.error?.code || null;
                 },
 
-                getApiErrorMessage(result, fallback = 'Terjadi kesalahan pada server') {
+                getApiErrorMessage(result, fallback = 'Terjadi masalah pada server') {
                     if (result?.error?.message) return result.error.message;
                     if (typeof result?.error === 'string' && result.error.trim()) return result.error;
                     return fallback;
@@ -194,23 +194,47 @@
                     return code === 'ADMIN_REQUIRED' || code === 'ADMIN_SESSION_EXPIRED';
                 },
 
-                getRequestFailureMessage(apiResult, fallback = 'Terjadi kesalahan pada server') {
+                getRequestFailureMessage(apiResult, fallback = 'Terjadi masalah pada server') {
                     if (apiResult?.status === 0) {
-                        return 'Server tidak terjangkau. Periksa koneksi atau coba lagi.';
+                        return 'Server tidak terhubung';
                     }
 
                     const errorCode = this.getApiErrorCode(apiResult?.data);
                     if (errorCode === 'DUPLICATE_QUEUE_REQUEST') {
-                        return 'Lagu yang sama atau sangat mirip sudah ada di antrian.';
+                        return 'Lagu sudah ada di antrean';
                     }
                     if (errorCode === 'SONG_ALREADY_PLAYING') {
-                        return 'Lagu yang sama atau sangat mirip sedang diputar.';
+                        return 'Lagu sedang diputar';
                     }
                     if (errorCode === 'SONG_COOLDOWN_ACTIVE') {
-                        return 'Lagu ini baru saja diputar. Tunggu sekitar 10 menit sebelum request ulang.';
+                        return 'Lagu baru diputar. Coba lagi dalam 10 menit';
                     }
                     if (errorCode === 'TITLE_ARTIST_SWAPPED') {
-                        return this.getApiErrorMessage(apiResult?.data, 'Judul dan artis terdeteksi tertukar. Silakan tukar posisi inputnya.');
+                        return this.getApiErrorMessage(apiResult?.data, 'Judul dan artis tertukar');
+                    }
+                    if (errorCode === 'QUEUE_FULL') {
+                        const limit = apiResult?.data?.error?.meta?.queueLimit || this.queueLimit;
+                        return `Antrean penuh. Maksimal ${limit} lagu`;
+                    }
+                    if (errorCode === 'ARTIST_QUEUE_LIMIT_REACHED') {
+                        const limit = apiResult?.data?.error?.meta?.limit;
+                        return limit ? `Maksimal ${limit} lagu dari artis yang sama` : 'Batas lagu artis tercapai';
+                    }
+                    if (errorCode === 'ADMIN_PRIORITY_LIMIT_REACHED') {
+                        const limit = apiResult?.data?.error?.meta?.limit || 3;
+                        return `Prioritas admin maksimal ${limit} lagu`;
+                    }
+                    if (errorCode === 'REQUEST_SCHEDULE_CLOSED') {
+                        return this.getRequestScheduleClosedMessage();
+                    }
+                    if (errorCode === 'SUPER_ADMIN_REQUIRED') {
+                        return 'Khusus Super Admin';
+                    }
+                    if (errorCode === 'REQUEST_NOT_FOUND') {
+                        return 'Lagu tidak ditemukan';
+                    }
+                    if (errorCode === 'MOVE_DISABLED_IN_RANDOM_MODE') {
+                        return 'Matikan mode acak untuk mengubah posisi';
                     }
 
                     return this.getApiErrorMessage(apiResult?.data, fallback);
@@ -313,39 +337,39 @@
                     // Validasi 1: Input tidak boleh kosong
                     if (!title) {
                         this.showTitleError = true;
-                        this.titleError = 'Judul lagu wajib diisi';
+                        this.titleError = 'Judul wajib diisi';
                         isValid = false;
                     }
                     
                     if (!artist) {
                         this.showArtistError = true;
-                        this.artistError = 'Nama artis wajib diisi';
+                        this.artistError = 'Artis wajib diisi';
                         isValid = false;
                     }
                     
                     // Validasi 2: Panjang minimum
                     if (title && title.length < 2) {
                         this.showTitleError = true;
-                        this.titleError = 'Judul lagu minimal 2 karakter';
+                        this.titleError = 'Minimal 2 karakter';
                         isValid = false;
                     }
                     
                     if (artist && artist.length < 2) {
                         this.showArtistError = true;
-                        this.artistError = 'Nama artis minimal 2 karakter';
+                        this.artistError = 'Minimal 2 karakter';
                         isValid = false;
                     }
                     
                     // Validasi 3: Panjang maksimum
                     if (title && title.length > 100) {
                         this.showTitleError = true;
-                        this.titleError = 'Judul lagu maksimal 100 karakter';
+                        this.titleError = 'Maksimal 100 karakter';
                         isValid = false;
                     }
                     
                     if (artist && artist.length > 100) {
                         this.showArtistError = true;
-                        this.artistError = 'Nama artis maksimal 100 karakter';
+                        this.artistError = 'Maksimal 100 karakter';
                         isValid = false;
                     }
                     
@@ -354,13 +378,13 @@
                     
                     if (title && !validCharsRegex.test(title)) {
                         this.showTitleError = true;
-                        this.titleError = 'Judul lagu mengandung karakter tidak valid';
+                        this.titleError = 'Karakter tidak valid';
                         isValid = false;
                     }
                     
                     if (artist && !validCharsRegex.test(artist)) {
                         this.showArtistError = true;
-                        this.artistError = 'Nama artis mengandung karakter tidak valid';
+                        this.artistError = 'Karakter tidak valid';
                         isValid = false;
                     }
                     
@@ -376,7 +400,7 @@
                     // Validasi 6: Cek apakah judul hanya berisi angka
                     if (title && /^\d+$/.test(title)) {
                         this.showTitleError = true;
-                        this.titleError = 'Judul lagu tidak boleh hanya angka';
+                        this.titleError = 'Judul tidak boleh hanya angka';
                         isValid = false;
                     }
 
@@ -402,7 +426,7 @@
                     
                     // Cek batas antrian lokal
                     if (this.queue.length >= this.queueLimit) {
-                        this.showToast(`Antrian penuh (maksimal ${this.queueLimit} lagu). Tunggu hingga beberapa lagu selesai.`, 'warning');
+                        this.showToast(`Antrean penuh. Maksimal ${this.queueLimit} lagu`, 'warning');
                         return;
                     }
                     
@@ -447,19 +471,19 @@
                             if (result.data?.normalization?.changed) {
                                 const normalizedSong = result.data?.request;
                                 this.showToast(
-                                    `Gemini merapikan menjadi: ${normalizedSong?.title} - ${normalizedSong?.artist} (Posisi: ${result.data?.queuePosition})`,
+                                    `Gemini memperbaiki: ${normalizedSong?.title} - ${normalizedSong?.artist} (#${result.data?.queuePosition})`,
                                     'success'
                                 );
                             } else if (isPriorityRequest) {
-                                this.showToast(`Ditambahkan sebagai PRIORITAS (Posisi: ${result.data?.queuePosition})`, 'success');
+                                this.showToast(`Prioritas ditambahkan (#${result.data?.queuePosition})`, 'success');
                             } else {
-                                this.showToast(`Ditambahkan ke antrian (Posisi: ${result.data?.queuePosition})`, 'success');
+                                this.showToast(`Lagu ditambahkan (#${result.data?.queuePosition})`, 'success');
                             }
                         } else {
-                            this.handleApiFailure(result, 'Gagal menambahkan request');
+                            this.handleApiFailure(result, 'Gagal menambah lagu');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menambahkan request', 'error');
+                        this.showToast('Gagal menambah lagu', 'error');
                     } finally {
                         this.isLoading = false;
                     }
@@ -468,11 +492,11 @@
                 // Remove request (Hanya Super Admin)
                 async removeRequest(id) {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa menghapus request', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
                     
-                    if (!confirm('Hapus request ini dari antrian?')) return;
+                    if (!confirm('Hapus lagu ini?')) return;
                     
                     try {
                         const result = await this.apiRequest(`/remove-request/${id}`, {
@@ -482,23 +506,23 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(`Dihapus: ${result.data?.removed}`, 'success');
+                            this.showToast(`Lagu dihapus: ${result.data?.removed}`, 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal menghapus request');
+                            this.handleApiFailure(result, 'Gagal menghapus lagu');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menghapus request', 'error');
+                        this.showToast('Gagal menghapus lagu', 'error');
                     }
                 },
                 
                 // Skip current request (Hanya Super Admin)
                 async skipCurrent() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa skip lagu', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
                     
-                    if (!confirm('Skip lagu saat ini?')) return;
+                    if (!confirm('Lewati lagu ini?')) return;
                     
                     try {
                         const result = await this.apiRequest('/skip-current', {
@@ -508,23 +532,23 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast('Request berhasil diskip', 'success');
+                            this.showToast('Lagu dilewati', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal skip request');
+                            this.handleApiFailure(result, 'Gagal melewati lagu');
                         }
                     } catch (error) {
-                        this.showToast('Gagal skip request', 'error');
+                        this.showToast('Gagal melewati lagu', 'error');
                     }
                 },
                 
                 // Force next request (Hanya Super Admin)
                 async forceNext() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa force next', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
                     
-                    if (!confirm('Force skip ke lagu berikutnya?')) return;
+                    if (!confirm('Putar lagu berikutnya?')) return;
                     
                     try {
                         const result = await this.apiRequest('/force-next', {
@@ -534,28 +558,28 @@
                         
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast('Force skip berhasil', 'success');
+                            this.showToast('Lagu berikutnya diputar', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal force skip');
+                            this.handleApiFailure(result, 'Gagal memutar lagu berikutnya');
                         }
                     } catch (error) {
-                        this.showToast('Gagal force skip', 'error');
+                        this.showToast('Gagal memutar lagu berikutnya', 'error');
                     }
                 },
                 
                 // Clear all requests (Hanya Super Admin)
                 async clearQueue() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa menghapus semua antrian', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
                     
                     if (this.queue.length === 0) {
-                        this.showToast('Antrian sudah kosong', 'info');
+                        this.showToast('Antrean sudah kosong', 'info');
                         return;
                     }
                     
-                    if (!confirm(`Hapus semua ${this.queue.length} request dari antrian?`)) return;
+                    if (!confirm(`Hapus ${this.queue.length} lagu dari antrean?`)) return;
                     
                     try {
                         const result = await this.apiRequest('/clear-requests', {
@@ -565,24 +589,24 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(`Dihapus ${result.data?.clearedCount} request`, 'success');
+                            this.showToast(`${result.data?.clearedCount} lagu dihapus`, 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal menghapus antrian');
+                            this.handleApiFailure(result, 'Gagal mengosongkan antrean');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menghapus antrian', 'error');
+                        this.showToast('Gagal mengosongkan antrean', 'error');
                     }
                 },
 
                 // Move request up (Admin & Super Admin)
                 async moveRequestUp(requestId, currentIndex) {
                     if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa memindahkan request', 'error');
+                        this.showToast('Khusus admin', 'error');
                         return;
                     }
 
                     if (this.randomQueueEnabled) {
-                        this.showToast('Pindah posisi hanya tersedia saat mode acak dimatikan', 'warning');
+                        this.showToast('Matikan mode acak untuk mengubah posisi', 'warning');
                         return;
                     }
                     
@@ -601,24 +625,24 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.data?.message, 'success');
+                            this.showToast('Posisi diperbarui', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal memindahkan request');
+                            this.handleApiFailure(result, 'Gagal mengubah posisi');
                         }
                     } catch (error) {
-                        this.showToast('Gagal memindahkan request', 'error');
+                        this.showToast('Gagal mengubah posisi', 'error');
                     }
                 },
                 
                 // Move request down (Admin & Super Admin)
                 async moveRequestDown(requestId, currentIndex) {
                     if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa memindahkan request', 'error');
+                        this.showToast('Khusus admin', 'error');
                         return;
                     }
 
                     if (this.randomQueueEnabled) {
-                        this.showToast('Pindah posisi hanya tersedia saat mode acak dimatikan', 'warning');
+                        this.showToast('Matikan mode acak untuk mengubah posisi', 'warning');
                         return;
                     }
                     
@@ -637,18 +661,18 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.data?.message, 'success');
+                            this.showToast('Posisi diperbarui', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal memindahkan request');
+                            this.handleApiFailure(result, 'Gagal mengubah posisi');
                         }
                     } catch (error) {
-                        this.showToast('Gagal memindahkan request', 'error');
+                        this.showToast('Gagal mengubah posisi', 'error');
                     }
                 },
 
                 async promoteRequestToPriority(requestId) {
                     if (!this.isAdmin) {
-                        this.showToast('Hanya admin yang bisa mengubah request menjadi priority', 'error');
+                        this.showToast('Khusus admin', 'error');
                         return;
                     }
 
@@ -660,18 +684,18 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.data?.message || 'Request dijadikan priority', 'success');
+                            this.showToast('Prioritas aktif', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal mengubah request menjadi priority');
+                            this.handleApiFailure(result, 'Gagal mengaktifkan prioritas');
                         }
                     } catch (error) {
-                        this.showToast('Gagal mengubah request menjadi priority', 'error');
+                        this.showToast('Gagal mengaktifkan prioritas', 'error');
                     }
                 },
 
                 async toggleRandomQueue() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa mengubah mode antrian', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
 
@@ -690,12 +714,12 @@
                             this.randomQueueEnabled = Boolean(result.data?.randomQueueEnabled);
                             this.randomQueue = result.data?.randomQueue || this.randomQueue;
                             await this.loadData();
-                            this.showToast(result.data?.message || 'Mode antrian diperbarui', 'success');
+                            this.showToast(this.randomQueueEnabled ? 'Mode acak aktif' : 'Mode acak mati', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal mengubah mode antrian');
+                            this.handleApiFailure(result, 'Gagal mengubah mode acak');
                         }
                     } catch (error) {
-                        this.showToast('Gagal mengubah mode antrian', 'error');
+                        this.showToast('Gagal mengubah mode acak', 'error');
                     }
                 },
 
@@ -707,12 +731,12 @@
                     const startTime = this.requestSchedule.startTime || '00:00';
                     const endTime = this.requestSchedule.endTime || '00:00';
                     const timeZone = this.requestSchedule.timeZone || 'Asia/Jakarta';
-                    return `Request user tersedia pukul ${startTime} sampai ${endTime} (${timeZone}).`;
+                    return `Request dibuka ${startTime} sampai ${endTime} (${timeZone}).`;
                 },
 
                 openRequestScheduleModal() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa mengatur jam request', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
 
@@ -733,17 +757,17 @@
 
                 async saveRequestSchedule() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa mengatur jam request', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
 
                     const { enabled, startTime, endTime } = this.requestScheduleForm;
                     if (!startTime || !endTime) {
-                        this.showToast('Jam mulai dan selesai wajib diisi', 'error');
+                        this.showToast('Isi jam mulai dan selesai', 'error');
                         return;
                     }
                     if (startTime === endTime) {
-                        this.showToast('Jam mulai dan selesai tidak boleh sama', 'error');
+                        this.showToast('Jam mulai dan selesai harus berbeda', 'error');
                         return;
                     }
 
@@ -759,12 +783,12 @@
                             this.requestSchedule = result.data?.requestSchedule || this.requestSchedule;
                             this.requestScheduleFormDirty = false;
                             this.showRequestScheduleModal = false;
-                            this.showToast(result.data?.message || 'Jadwal request diperbarui', 'success');
+                            this.showToast('Jadwal disimpan', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal menyimpan jadwal request');
+                            this.handleApiFailure(result, 'Gagal menyimpan jadwal');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menyimpan jadwal request', 'error');
+                        this.showToast('Gagal menyimpan jadwal', 'error');
                     } finally {
                         this.isSavingRequestSchedule = false;
                     }
@@ -772,11 +796,11 @@
 
                 async resetSystemStats() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa mereset statistik sistem', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
 
-                    if (!confirm('Reset Total Diputar dan Total Menit? Statistik lain akan tetap disimpan.')) return;
+                    if (!confirm('Reset statistik pemutaran?')) return;
 
                     try {
                         const result = await this.apiRequest('/admin/reset-system-stats', {
@@ -786,18 +810,18 @@
 
                         if (result.ok) {
                             await this.loadData();
-                            this.showToast(result.data?.message || 'Statistik sistem berhasil direset', 'success');
+                            this.showToast('Statistik direset', 'success');
                         } else {
-                            this.handleApiFailure(result, 'Gagal mereset statistik sistem');
+                            this.handleApiFailure(result, 'Gagal mereset statistik');
                         }
                     } catch (error) {
-                        this.showToast('Gagal mereset statistik sistem', 'error');
+                        this.showToast('Gagal mereset statistik', 'error');
                     }
                 },
 
                 async updateManagedPassword() {
                     if (!this.isAdmin || this.adminRole !== 'super') {
-                        this.showToast('Hanya Super Admin yang bisa mengatur password', 'error');
+                        this.showToast('Khusus Super Admin', 'error');
                         return;
                     }
 
@@ -806,7 +830,7 @@
                     const confirmPassword = (this.passwordManagementConfirm || '').trim();
 
                     if (!password) {
-                        this.showToast('Password baru wajib diisi', 'error');
+                        this.showToast('Isi password baru', 'error');
                         return;
                     }
                     if (password.length < 4) {
@@ -818,7 +842,7 @@
                         return;
                     }
                     if (password !== confirmPassword) {
-                        this.showToast('Konfirmasi password tidak sama', 'error');
+                        this.showToast('Konfirmasi password berbeda', 'error');
                         return;
                     }
 
@@ -834,12 +858,12 @@
                             this.passwordManagementValue = '';
                             this.passwordManagementConfirm = '';
                             this.showPasswordManagementModal = false;
-                            this.showToast(result.data?.message || `Password ${role} berhasil diperbarui`, 'success');
+                            this.showToast(`Password ${role} diperbarui`, 'success');
                         } else {
                             this.handleApiFailure(result, 'Gagal memperbarui password');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menghubungi server', 'error');
+                        this.showToast('Server tidak terhubung', 'error');
                     } finally {
                         this.isLoading = false;
                     }
@@ -872,7 +896,7 @@
                 // Admin methods
                 async adminLogin() {
                     if (!this.adminPassword.trim()) {
-                        this.showToast('Masukkan password admin', 'error');
+                        this.showToast('Masukkan password', 'error');
                         return;
                     }
                     
@@ -898,7 +922,7 @@
                             localStorage.setItem('adminRole', this.adminRole);
                             localStorage.setItem('adminExpires', this.adminSessionExpires);
                             
-                            this.showToast(`Login ${this.adminRole === 'super' ? 'Super Admin' : 'Admin'} berhasil`, 'success');
+                            this.showToast(`${this.adminRole === 'super' ? 'Super Admin' : 'Admin'} masuk`, 'success');
                             
                             // Load data dengan admin token
                             await this.loadData();
@@ -906,14 +930,14 @@
                             this.handleApiFailure(result, 'Login gagal');
                         }
                     } catch (error) {
-                        this.showToast('Gagal menghubungi server', 'error');
+                        this.showToast('Server tidak terhubung', 'error');
                     } finally {
                         this.isLoading = false;
                     }
                 },
                 
                 async adminLogout() {
-                    if (!confirm('Logout dari mode admin?')) return;
+                    if (!confirm('Keluar dari mode admin?')) return;
                     
                     try {
                         if (this.adminToken) {
@@ -925,7 +949,7 @@
                         
                         this.clearAdminSession();
                         
-                        this.showToast('Logout admin berhasil', 'info');
+                        this.showToast('Mode admin ditutup', 'info');
                         
                         // Load data tanpa admin token
                         await this.loadData();

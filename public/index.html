@@ -304,13 +304,13 @@
                             <i class="fas fa-music mr-2 md:mr-3"></i>YouTube Music Monse
                         </h1>
                     </div>
-                    <p class="text-gray-400 mt-2 text-sm md:text-base">Sistem Request Music (Max 100 Lagu)</p>
+                    <p class="text-gray-400 mt-2 text-sm md:text-base">Maksimal 100 lagu</p>
                 </div>
                 <div class="flex items-center gap-4 w-full md:w-auto header-actions-mobile">
                     <div class="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-gray-800 rounded-lg">
                         <div class="w-2 h-2 rounded-full" :class="isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'"></div>
                         <span class="text-xs md:text-sm" :class="isConnected ? 'text-green-400' : 'text-red-400'">
-                            <span x-text="isConnected ? 'Connected' : 'Disconnected'"></span>
+                            <span x-text="isConnected ? 'Terhubung' : 'Terputus'"></span>
                         </span>
                     </div>
                     
@@ -348,7 +348,7 @@
                 <div class="glass-effect rounded-2xl p-4 md:p-6">
                     <div class="flex items-center justify-between mb-4 md:mb-6">
                         <h2 class="text-lg md:text-xl font-bold text-white">
-                            <i class="fas fa-play-circle mr-2 text-green-400"></i>Lagu Saat Ini
+                            <i class="fas fa-play-circle mr-2 text-green-400"></i>Sedang Diputar
                         </h2>
                         <div class="text-xs md:text-sm text-gray-400">
                             <span x-text="formatTime(currentSong.timestamp)"></span>
@@ -382,7 +382,7 @@
                                 </div>
                                 <div class="flex items-center gap-1 md:gap-2">
                                     <i class="fa-solid fa-play text-sm"></i>
-                                    <span class="text-sm" x-text="currentSong.isPlaying ? 'Playing' : 'Paused'"></span>
+                                    <span class="text-sm" x-text="currentSong.isPlaying ? 'Diputar' : 'Dijeda'"></span>
                                 </div>
                             </div>
                         </div>
@@ -391,15 +391,15 @@
                     <!-- Progress Bar -->
                     <div class="mt-4 md:mt-6" x-show="lockRemaining > 0">
                         <div class="flex justify-between text-xs md:text-sm text-gray-400 mb-2">
-                            <span>Request lock active</span>
-                            <span x-text="formatWaitTime(lockRemaining) + ' remaining'"></span>
+                            <span>Request dikunci</span>
+                            <span x-text="formatWaitTime(lockRemaining) + ' lagi'"></span>
                         </div>
                         <div class="w-full bg-gray-800 rounded-full h-1.5 md:h-2">
                             <div class="bg-gradient-to-r from-green-500 to-blue-500 h-1.5 md:h-2 rounded-full transition-all duration-1000"
                                  :style="'width: ' + lockProgress + '%'"></div>
                         </div>
                         <div class="text-xs text-gray-500 mt-1 text-center">
-                            Lock duration: <span x-text="formatDuration(lockInfo.originalLock)"></span> 
+                            Durasi: <span x-text="formatDuration(lockInfo.originalLock)"></span>
                         </div>
                     </div>
 
@@ -407,11 +407,11 @@
                     <div class="mt-4 md:mt-6 flex gap-2" x-show="isAdmin && adminRole === 'super'">
                         <button @click="skipCurrent()"
                                 class="px-3 py-1.5 md:px-4 md:py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-sm">
-                            <i class="fas fa-forward mr-1 md:mr-2"></i>Skip
+                            <i class="fas fa-forward mr-1 md:mr-2"></i>Lewati
                         </button>
                         <button @click="forceNext()"
                                 class="px-3 py-1.5 md:px-4 md:py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-sm">
-                            <i class="fas fa-step-forward mr-1 md:mr-2"></i>Force Next
+                            <i class="fas fa-step-forward mr-1 md:mr-2"></i>Putar Berikutnya
                         </button>
                     </div>
                 </div>
@@ -421,7 +421,7 @@
             <div>
                 <div class="glass-effect rounded-2xl p-4 md:p-6 h-full add-request-panel-mobile">
                     <h2 class="text-lg md:text-xl font-bold text-white mb-4 md:mb-6">
-                        <i class="fas fa-plus-circle mr-2 text-green-400"></i>Tambah Request
+                        <i class="fas fa-plus-circle mr-2 text-green-400"></i>Tambah Lagu
                     </h2>
 
  
@@ -435,10 +435,10 @@
                             <div class="flex items-start gap-2">
                                 <i class="fas mt-0.5" aria-hidden="true" :class="requestSchedule.isOpen || isAdmin ? 'fa-clock text-green-400' : 'fa-lock text-amber-400'"></i>
                                 <div>
-                                    <p class="font-medium" x-text="requestSchedule.isOpen || isAdmin ? 'Request tersedia' : 'Request user sedang ditutup'"></p>
+                                    <p class="font-medium" x-text="requestSchedule.isOpen || isAdmin ? 'Request dibuka' : 'Request ditutup'"></p>
                                     <p class="mt-1 text-xs opacity-90">
-                                        Jadwal harian <span x-text="requestSchedule.startTime"></span> sampai <span x-text="requestSchedule.endTime"></span> (<span x-text="requestSchedule.timeZone"></span>).
-                                        <span x-show="isAdmin">Admin tetap dapat menambahkan request.</span>
+                                        <span x-text="requestSchedule.startTime"></span> sampai <span x-text="requestSchedule.endTime"></span> (<span x-text="requestSchedule.timeZone"></span>).
+                                        <span x-show="isAdmin">Admin tetap bisa menambah lagu.</span>
                                     </p>
                                 </div>
                             </div>
@@ -448,14 +448,14 @@
                         <div x-show="isAdmin" class="flex items-center gap-2 mb-2 md:mb-3">
                             <input type="checkbox" x-model="priorityRequest" id="priority" class="w-4 h-4 text-yellow-600 bg-gray-700 border-gray-600 rounded focus:ring-yellow-500">
                             <label for="priority" class="text-xs md:text-sm text-yellow-400">
-                                <i class="fas fa-crown mr-1"></i>langsung di posisi pertama
+                                <i class="fas fa-crown mr-1"></i>Masukkan sebagai prioritas
                             </label>
                         </div>
                         
                         <!-- Judul Lagu -->
                         <div>
                             <label class="block text-xs md:text-sm font-medium text-gray-400 mb-1 md:mb-2">
-                                <i class="fas fa-music mr-1"></i>Judul Lagu *
+                                <i class="fas fa-music mr-1"></i>Judul *
                             </label>
                             <input x-model="newRequest.title" 
                                    @keydown.enter="addRequest()"
@@ -468,14 +468,14 @@
                                 <i class="fas fa-exclamation-circle mr-1"></i><span x-text="titleError"></span>
                             </div>
                             <div class="mt-1 text-xs text-gray-500">
-                                Minimal 2 karakter dan maksimal 100 karakter
+                                2 sampai 100 karakter
                             </div>
                         </div>
                         
                         <!-- Nama Artis -->
                         <div>
                             <label class="block text-xs md:text-sm font-medium text-gray-400 mb-1 md:mb-2">
-                                <i class="fas fa-user mr-1"></i>Nama Artis *
+                                <i class="fas fa-user mr-1"></i>Artis *
                             </label>
                             <input x-model="newRequest.artist" 
                                    @keydown.enter="addRequest()"
@@ -488,27 +488,27 @@
                                 <i class="fas fa-exclamation-circle mr-1"></i><span x-text="artistError"></span>
                             </div>
                             <div class="mt-1 text-xs text-gray-500">
-                                Minimal 2 karakter dan maksimal 100 karakter
+                                2 sampai 100 karakter
                             </div>
                         </div>
 
                         <div x-show="geminiNormalizationEnabled" class="rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-3 py-2 text-xs text-cyan-200">
                             <i class="fas fa-wand-magic-sparkles mr-1 text-cyan-400"></i>
-                            Gemini akan memeriksa judul dan artis sebelum request masuk ke antrian.
+                            Gemini memeriksa lagu dan mengatur bobot antrean.
                         </div>
                        
                         <!-- Queue Status -->
 	                        <div class="bg-gray-800/50 p-3 rounded-lg">
 	                            <div class="flex justify-between items-center mb-1">
-	                                <span class="text-xs md:text-sm text-gray-400">Antrian:</span>
+	                                <span class="text-xs md:text-sm text-gray-400">Antrean</span>
 	                                <span class="font-medium text-sm md:text-base" x-text="queue.length + '/' + queueLimit"></span>
 	                            </div>
                             <div class="progress-bar">
                                 <div class="progress-fill" :style="'width: ' + (queue.length / queueLimit * 100) + '%'"></div>
                             </div>
 	                            <div class="flex justify-between text-xs text-gray-500 mt-1">
-	                                <span>Tersisa: <span x-text="queueLimit - queue.length"></span> slot</span>
-	                                <span x-text="queue.length >= queueLimit ? 'Antrian Penuh' : ''" class="text-red-400"></span>
+	                                <span>Sisa: <span x-text="queueLimit - queue.length"></span></span>
+	                                <span x-text="queue.length >= queueLimit ? 'Penuh' : ''" class="text-red-400"></span>
 	                            </div>
 	                        </div>
 	                        <!-- Tombol Submit -->
@@ -517,7 +517,7 @@
                                     :disabled="isLoading || isRegularUserScheduleClosed() || !newRequest.title.trim() || !newRequest.artist.trim() || queue.length >= queueLimit"
                                     class="flex-1 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-2.5 md:py-3 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base">
                                 <i :class="isLoading ? 'fas fa-spinner fa-spin' : 'fas fa-plus'" class="mr-1 md:mr-2"></i>
-                                <span x-text="isLoading ? (geminiNormalizationEnabled ? 'Gemini sedang memeriksa...' : 'Menambahkan...') : (isRegularUserScheduleClosed() ? 'Request sedang ditutup' : (queue.length >= queueLimit ? 'Antrian Penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah ke Antrian')))"></span>
+                                <span x-text="isLoading ? (geminiNormalizationEnabled ? 'Memeriksa...' : 'Menambahkan...') : (isRegularUserScheduleClosed() ? 'Request ditutup' : (queue.length >= queueLimit ? 'Antrean penuh' : (priorityRequest && isAdmin ? 'Tambah Prioritas' : 'Tambah Lagu')))"></span>
                             </button>
                         </div>
                     </div>
@@ -530,7 +530,7 @@
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 md:gap-0 mb-4 md:mb-6">
                 <div class="flex items-center gap-3 md:gap-4">
                     <h2 class="text-lg md:text-xl font-bold text-white">
-                        <i class="fas fa-list mr-2 text-blue-400"></i>Antrian Request
+                        <i class="fas fa-list mr-2 text-blue-400"></i>Antrean Lagu
                         <span class="text-gray-400 ml-2" x-text="'(' + queue.length + '/' + queueLimit + ')'"></span>
                     </h2>
                     
@@ -574,8 +574,8 @@
                 <div class="flex items-center gap-3">
                     <i class="fas fa-exclamation-triangle text-red-400 text-base md:text-lg"></i>
                     <div>
-                        <p class="font-medium text-red-300 text-sm md:text-base">Antrian penuh (maksimal <span x-text="queueLimit"></span> lagu)</p>
-                        <p class="text-xs md:text-sm text-red-400/80 mt-1">Tunggu hingga beberapa lagu selesai diputar sebelum menambahkan request baru.</p>
+                        <p class="font-medium text-red-300 text-sm md:text-base">Antrean penuh</p>
+                        <p class="text-xs md:text-sm text-red-400/80 mt-1">Tunggu satu lagu selesai.</p>
 	                    </div>
 	                </div>
 	            </div>
@@ -585,9 +585,9 @@
 		                    <i class="fas fa-random text-yellow-400 text-base md:text-lg"></i>
 		                    <div>
 		                        <p class="font-medium text-yellow-300 text-sm md:text-base">
-		                            <span x-text="randomQueue.shortLabel || 'Fair Random'"></span> sedang aktif
+		                            <span x-text="randomQueue.shortLabel || 'Fair Random'"></span> aktif
 		                        </p>
-		                        <p class="text-xs md:text-sm text-yellow-400/80 mt-1" x-text="randomQueue.description || 'Lagu berikutnya dipilih acak berbobot dari antrean teratas.'"></p>
+		                        <p class="text-xs md:text-sm text-yellow-400/80 mt-1" x-text="randomQueue.description || 'Bobot antrean diatur otomatis.'"></p>
 		                    </div>
 		                </div>
 		            </div>
@@ -596,8 +596,8 @@
             <div x-show="queue.length === 0" 
                  class="text-center py-8 md:py-12 border-2 border-dashed border-gray-800 rounded-xl">
                 <i class="fas fa-music text-3xl md:text-4xl text-gray-700 mb-3 md:mb-4"></i>
-                <p class="text-gray-500 text-base md:text-lg">Antrian kosong</p>
-                <p class="text-gray-600 text-xs md:text-sm mt-1 md:mt-2">Tambahkan request lagu di form sebelah</p>
+                <p class="text-gray-500 text-base md:text-lg">Belum ada lagu</p>
+                <p class="text-gray-600 text-xs md:text-sm mt-1 md:mt-2">Tambahkan lagu lewat form di atas.</p>
             </div>
             
             <!-- Queue Items Desktop -->
@@ -626,13 +626,13 @@
                                         <!-- Priority Badge -->
                                         <template x-if="item.isPriority">
                                             <div class="flex-shrink-0 px-2 py-1 priority-badge text-xs font-bold rounded-full">
-                                                <i class="fas fa-crown mr-1"></i>PRIORITY
+                                                <i class="fas fa-crown mr-1"></i>PRIORITAS
                                             </div>
                                         </template>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2 text-sm text-gray-400">
-                                        <span class="bg-gray-900/50 px-2 py-1 rounded" x-text="'Posisi: ' + (index + 1)"></span>
-                                        <span>Ditambahkan: <span x-text="formatTime(item.time)"></span></span>
+                                        <span class="bg-gray-900/50 px-2 py-1 rounded" x-text="'#' + (index + 1)"></span>
+                                        <span>Masuk <span x-text="formatTime(item.time)"></span></span>
                                         <template x-if="item.addedByAdmin">
                                             <span class="text-green-400">
                                                 <i class="fas fa-user-shield mr-1"></i>Admin
@@ -650,13 +650,13 @@
                                         <button @click="moveRequestUp(item.id, index)"
                                                 :disabled="index === 0"
                                                 class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-                                                title="Pindah ke atas">
+                                                title="Naik">
                                             <i class="fas fa-arrow-up"></i>
                                         </button>
                                         <button @click="moveRequestDown(item.id, index)"
                                                 :disabled="index === queue.length - 1"
                                                 class="p-2 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-                                                title="Pindah ke bawah">
+                                                title="Turun">
                                             <i class="fas fa-arrow-down"></i>
                                         </button>
                                     </div>
@@ -665,7 +665,7 @@
                                 <template x-if="isAdmin && !item.isPriority">
                                     <button @click="promoteRequestToPriority(item.id)"
                                             class="p-2 text-gray-500 hover:text-yellow-400 rounded-lg hover:bg-gray-700 transition-colors"
-                                            title="Jadikan priority">
+                                            title="Jadikan prioritas">
                                         <i class="fas fa-crown"></i>
                                     </button>
                                 </template>
@@ -678,7 +678,7 @@
                                 <template x-if="isAdmin && adminRole === 'super'">
                                     <button @click="removeRequest(item.id)"
                                             class="p-2 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
-                                            title="Hapus request">
+                                            title="Hapus lagu">
                                         <i class="fas fa-times"></i>
                                     </button>
                                 </template>
@@ -743,13 +743,13 @@
                                         <button @click="moveRequestUp(item.id, index)"
                                                 :disabled="index === 0"
                                                 class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-                                                title="Pindah ke atas">
+                                                title="Naik">
                                             <i class="fas fa-arrow-up text-xs"></i>
                                         </button>
                                         <button @click="moveRequestDown(item.id, index)"
                                                 :disabled="index === queue.length - 1"
                                                 class="p-1.5 text-gray-500 hover:text-green-400 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-                                                title="Pindah ke bawah">
+                                                title="Turun">
                                             <i class="fas fa-arrow-down text-xs"></i>
                                         </button>
                                     </div>
@@ -758,7 +758,7 @@
                                 <template x-if="isAdmin && !item.isPriority">
                                     <button @click="promoteRequestToPriority(item.id)"
                                             class="p-1.5 text-gray-500 hover:text-yellow-400 rounded-lg hover:bg-gray-700 transition-colors"
-                                            title="Jadikan priority">
+                                            title="Jadikan prioritas">
                                         <i class="fas fa-crown text-xs"></i>
                                     </button>
                                 </template>
@@ -767,7 +767,7 @@
                                 <template x-if="isAdmin && adminRole === 'super'">
                                     <button @click="removeRequest(item.id)"
                                             class="p-1.5 text-gray-500 hover:text-red-400 rounded-lg hover:bg-gray-700 transition-colors"
-                                            title="Hapus request">
+                                            title="Hapus lagu">
                                         <i class="fas fa-times text-xs"></i>
                                     </button>
                                 </template>
@@ -782,20 +782,20 @@
         <div class="mt-6 md:mt-8 glass-effect rounded-2xl p-4 md:p-6">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
                 <h2 class="text-lg md:text-xl font-bold text-white">
-                    <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik Sistem
+                    <i class="fas fa-chart-bar mr-2 text-blue-400"></i>Statistik
                 </h2>
                 <div x-show="isAdmin && adminRole === 'super'" class="flex flex-wrap items-center gap-2">
                     <button @click="openRequestScheduleModal()"
                             type="button"
                             class="h-11 px-3 text-xs md:text-sm bg-blue-700 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
                         <i class="fas fa-clock" aria-hidden="true"></i>
-                        <span>Jam Request User</span>
+                        <span>Jadwal</span>
                     </button>
                     <button @click="showPasswordManagementModal = true"
                             type="button"
                             class="h-11 px-3 text-xs md:text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-yellow-400">
                         <i class="fas fa-key" aria-hidden="true"></i>
-                        <span>Rubah Password</span>
+                        <span>Ubah Password</span>
                     </button>
                     <button @click="resetSystemStats()"
                             type="button"
@@ -809,20 +809,19 @@
             <div class="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 stats-grid-mobile">
                 <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl">
                     <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="queue.length"></div>
-                    <div class="text-xs md:text-sm text-gray-400">Dalam Antrian</div>
-                    <div class="text-xs text-gray-500 mt-1" x-text="'Max: ' + queueLimit"></div>
+                    <div class="text-xs md:text-sm text-gray-400">Antrean</div>
+                    <div class="text-xs text-gray-500 mt-1" x-text="'Maks. ' + queueLimit"></div>
                 </div>
                 
                 <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl">
                     <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="stats.totalSongs || 0"></div>
-                    <div class="text-xs md:text-sm text-gray-400">Total Diputar</div>
-                    <div class="text-xs text-gray-500 mt-1">Sepanjang waktu</div>
+                    <div class="text-xs md:text-sm text-gray-400">Diputar</div>
+                    <div class="text-xs text-gray-500 mt-1">Semua waktu</div>
                 </div>
                 
                 <div class="flex flex-col items-center justify-center p-4 md:p-6 bg-gray-800/50 rounded-xl col-span-2 md:col-span-1">
                     <div class="text-2xl md:text-4xl font-bold mb-1 md:mb-2" x-text="stats.totalTime || '0'"></div>
-                    <div class="text-xs md:text-sm text-gray-400">Total Menit</div>
-                    <div class="text-xs text-gray-500 mt-1">Waktu pemutaran</div>
+                    <div class="text-xs md:text-sm text-gray-400">Menit Diputar</div>
                 </div>
             </div>
         </div>
@@ -840,16 +839,16 @@
                     <div class="hidden md:block text-gray-600">|</div>
                     <div>YouTube Music Bridge</div>
                     <div class="hidden md:block text-gray-600">|</div>
-                    <div>Antrian: <span class="font-medium" x-text="queueLimit"></span> lagu max</div>
+                    <div>Batas: <span class="font-medium" x-text="queueLimit"></span> lagu</div>
                     <div class="hidden md:block text-gray-600">|</div>
-                    <div><span x-text="isAdmin ? (adminRole === 'super' ? 'Super Admin Mode' : 'Admin Mode') : 'User Mode'" 
+                    <div><span x-text="isAdmin ? (adminRole === 'super' ? 'Super Admin' : 'Admin') : 'User'"
                               :class="isAdmin ? (adminRole === 'super' ? 'text-red-400' : 'text-blue-400') : ''"></span></div>
                 </div>
                 
                 <div class="flex flex-wrap items-center gap-1 md:gap-2 justify-center">
-                    <div class="text-xs text-gray-600">Auto-refresh: <span class="text-green-400">Aktif</span></div>
+                    <div class="text-xs text-gray-600">Refresh: <span class="text-green-400">Aktif</span></div>
                     <div class="text-xs text-gray-600 hidden md:block">|</div>
-                    <div class="text-xs text-gray-600">Priority: <span x-text="isAdmin ? 'Tersedia' : 'Admin only'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
+                    <div class="text-xs text-gray-600">Prioritas: <span x-text="isAdmin ? 'Aktif' : 'Khusus admin'" :class="isAdmin ? 'text-yellow-400' : ''"></span></div>
                 </div>
             </div>
         </footer>
@@ -872,14 +871,14 @@
             <div class="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl border border-gray-700 bg-gray-800 p-5 md:p-6">
                 <div class="flex items-start justify-between gap-4">
                     <div>
-                        <h2 id="request-schedule-title" class="text-xl md:text-2xl font-bold text-white">Jam Request User</h2>
-                        <p class="mt-1 text-sm text-gray-300">Atur waktu harian untuk menerima request dari user biasa.</p>
+                        <h2 id="request-schedule-title" class="text-xl md:text-2xl font-bold text-white">Jadwal Request</h2>
+                        <p class="mt-1 text-sm text-gray-300">Atur jam request user.</p>
                     </div>
                     <button type="button"
                             @click="closeRequestScheduleModal()"
                             :disabled="isSavingRequestSchedule"
                             class="min-h-11 min-w-11 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
-                            aria-label="Tutup pengaturan jam request">
+                            aria-label="Tutup jadwal">
                         <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                 </div>
@@ -890,19 +889,19 @@
                                x-model="requestScheduleForm.enabled"
                                @change="requestScheduleFormDirty = true"
                                class="h-5 w-5 rounded border-gray-500 bg-gray-900 text-blue-600 focus:ring-2 focus:ring-blue-400">
-                        <span>Batasi request user berdasarkan jam</span>
+                        <span>Aktifkan jadwal</span>
                     </label>
 
                     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <label class="block text-sm font-medium text-gray-200">
-                            Jam mulai
+                            Mulai
                             <input type="time"
                                    x-model="requestScheduleForm.startTime"
                                    @input="requestScheduleFormDirty = true"
                                    class="mt-2 min-h-11 w-full rounded-lg border border-gray-500 bg-gray-900 px-3 text-base text-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40">
                         </label>
                         <label class="block text-sm font-medium text-gray-200">
-                            Jam selesai
+                            Selesai
                             <input type="time"
                                    x-model="requestScheduleForm.endTime"
                                    @input="requestScheduleFormDirty = true"
@@ -911,7 +910,7 @@
                     </div>
 
                     <p class="text-xs leading-5 text-gray-300">
-                        Zona waktu <span x-text="requestSchedule.timeZone"></span>. Rentang seperti 20:00 sampai 02:00 berlaku melewati tengah malam. Admin tetap dapat menambahkan request di luar jadwal.
+                        Zona <span x-text="requestSchedule.timeZone"></span>. Jadwal bisa melewati tengah malam. Admin tidak dibatasi jadwal.
                     </p>
 
                     <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
@@ -926,7 +925,7 @@
                                 :disabled="isSavingRequestSchedule || !requestScheduleFormDirty"
                                 class="min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-50">
                             <i class="fas fa-save mr-2" aria-hidden="true"></i>
-                            <span x-text="isSavingRequestSchedule ? 'Menyimpan...' : 'Simpan Jadwal'"></span>
+                            <span x-text="isSavingRequestSchedule ? 'Menyimpan...' : 'Simpan'"></span>
                         </button>
                     </div>
                 </div>
@@ -943,7 +942,7 @@
              x-transition:leave-end="opacity-0"
              class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
             <div class="bg-gray-800 rounded-2xl p-5 md:p-6 w-full max-w-md mx-4" @click.away="showAdminLogin = false">
-                <h2 class="text-xl md:text-2xl font-bold mb-4">Admin Login</h2>
+                <h2 class="text-xl md:text-2xl font-bold mb-4">Login Admin</h2>
                 <div class="space-y-4">
                     <div>
                         <input x-model="adminPassword" type="password" 
@@ -953,7 +952,7 @@
                     </div>
                     <div class="text-xs text-gray-400">
                         <i class="fas fa-info-circle mr-1"></i>
-                        Masukkan password Admin atau Super Admin
+                        Gunakan password Admin atau Super Admin.
                     </div>
                     <div class="flex justify-end gap-3 md:gap-4">
                         <button @click="showAdminLogin = false" 
@@ -979,7 +978,7 @@
              x-transition:leave-end="opacity-0"
              class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
             <div class="bg-gray-800 rounded-2xl p-5 md:p-6 w-full max-w-md mx-4" @click.away="showPasswordManagementModal = false">
-                <h2 class="text-xl md:text-2xl font-bold mb-4">Rubah Password Admin</h2>
+                <h2 class="text-xl md:text-2xl font-bold mb-4">Ubah Password</h2>
                 <div class="space-y-3">
                     <select x-model="passwordManagementRole"
                             class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-yellow-500">
@@ -1001,7 +1000,7 @@
                            class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 focus:outline-none focus:border-yellow-500">
                     <div class="text-xs text-gray-400">
                         <i class="fas fa-info-circle mr-1"></i>
-                        Hanya Super Admin yang dapat mengubah password Admin dan Super Admin.
+                        Khusus Super Admin.
                     </div>
                     <div class="flex justify-end gap-3 md:gap-4">
                         <button @click="showPasswordManagementModal = false"
@@ -1010,7 +1009,7 @@
                         </button>
                         <button @click="updateManagedPassword()"
                                 class="px-3 py-2 md:px-4 md:py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors">
-                            Simpan Password
+                            Simpan
                         </button>
                     </div>
                 </div>
@@ -1039,7 +1038,7 @@
         <div x-show="isLoading" class="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-50">
             <div class="text-center">
                 <div class="w-12 h-12 md:w-16 md:h-16 border-4 border-t-red-500 border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mx-auto"></div>
-                <p class="mt-3 md:mt-4 text-white text-sm md:text-base">Memuat data...</p>
+                <p class="mt-3 md:mt-4 text-white text-sm md:text-base">Memuat...</p>
             </div>
         </div>
     </div>

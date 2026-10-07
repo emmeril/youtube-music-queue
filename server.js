@@ -1031,7 +1031,7 @@ function getRandomQueueMeta() {
     poolSize: FAIR_RANDOM_POOL_SIZE,
     description: state.randomQueueEnabled
       ? 'Bobot Gemini: Dangdut > Indonesia > Barat > K-pop.'
-      : 'Antrian diputar sesuai urutan masuk.',
+      : 'Antrean diputar sesuai urutan.',
     shortLabel: state.randomQueueEnabled ? 'Fair Random' : 'FIFO'
   };
 }
