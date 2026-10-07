@@ -1030,9 +1030,9 @@ function getRandomQueueMeta() {
     mode: state.randomQueueEnabled ? 'fair-random' : 'fifo',
     poolSize: FAIR_RANDOM_POOL_SIZE,
     description: state.randomQueueEnabled
-      ? `Dari ${FAIR_RANDOM_POOL_SIZE} request terlama, Gemini mengatur bobot dengan urutan dangdut/koplo, lagu Indonesia, lagu Barat, lalu Korea/K-pop. Lama menunggu tetap menambah peluang, dan priority selalu didahulukan.`
+      ? 'Bobot Gemini: Dangdut > Indonesia > Barat > K-pop.'
       : 'Antrian diputar sesuai urutan masuk.',
-    shortLabel: state.randomQueueEnabled ? `Fair random ${FAIR_RANDOM_POOL_SIZE}` : 'FIFO'
+    shortLabel: state.randomQueueEnabled ? 'Fair Random' : 'FIFO'
   };
 }
 
