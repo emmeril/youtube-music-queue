@@ -136,6 +136,148 @@ test('scores the exact song title above an extended title', () => {
   );
 });
 
+test('keeps a YouTube-ranked song candidate even when metadata is not exact', () => {
+  const row = { innerText: 'Numb Linkin Park Official 3:07' };
+  const { SearchAutoplay, RequestProcessor } = loadSearchMatching({
+    document: {
+      querySelectorAll: () => [row]
+    }
+  });
+  RequestProcessor.getSearchTarget = () => ({
+    title: 'numb',
+    artist: 'linkin park',
+    rawQuery: 'Numb - Linkin Park',
+    titleTokens: ['numb'],
+    artistTokens: ['linkin', 'park']
+  });
+  const matcher = new SearchAutoplay();
+  matcher.findExactPlaybackTarget = () => ({
+    playElement: {},
+    videoId: 'youtube-result',
+    watchUrl: 'https://music.youtube.com/watch?v=youtube-result'
+  });
+  matcher.extractDurationSeconds = () => 187;
+  matcher.extractRowMeta = () => ({
+    title: 'numb official audio',
+    subtitle: 'official music channel',
+    text: 'numb official audio official music channel 3 07'
+  });
+
+  const candidate = matcher.findBestSongCandidate();
+
+  assert.equal(candidate.videoId, 'youtube-result');
+  assert.equal(candidate.targetMatch, false);
+});
+
+test('keeps playing when YouTube metadata differs from the request', async () => {
+  let clearedPendingVideo = false;
+  let clearedSearch = false;
+  let status = '';
+  let wentBack = false;
+  const { SearchAutoplay, RequestProcessor } = loadSearchMatching({
+    SongManager: {
+      extractSongInfo: () => ({ title: 'Numb Official Audio', artist: 'Linkin Park Topic' })
+    },
+    DebugPanel: {
+      setStatus: (value) => {
+        status = value;
+      }
+    },
+    setPendingAutoplayVideoId: () => {
+      clearedPendingVideo = true;
+    },
+    setTimeout: (callback) => {
+      callback();
+      return 1;
+    }
+  });
+  RequestProcessor.clearPendingSearchUrl = () => {
+    clearedSearch = true;
+  };
+  const matcher = new SearchAutoplay();
+  matcher.waitForPlaybackState = async () => ({ video: {}, videoId: 'different-video' });
+  matcher.hasPlaybackActuallyStarted = () => true;
+  matcher.waitForCandidateDuration = async () => 187;
+  matcher.shouldRejectDuration = () => false;
+  matcher.isActualPlaybackMatchingTarget = () => false;
+  matcher.goBackAfterDelay = () => {
+    wentBack = true;
+  };
+
+  await matcher.verifyPlayback({ videoId: 'expected-video' });
+
+  assert.equal(status, 'YouTube memilih hasil terdekat, lagu tetap diputar');
+  assert.equal(clearedPendingVideo, true);
+  assert.equal(clearedSearch, true);
+  assert.equal(wentBack, true);
+});
+
+test('defers metadata verification while a YouTube advertisement is playing', async () => {
+  let status = '';
+  let retryCallback;
+  let clearedPendingVideo = false;
+  const { SearchAutoplay } = loadSearchMatching({
+    DebugPanel: {
+      setStatus: (value) => {
+        status = value;
+      }
+    },
+    setPendingAutoplayVideoId: () => {
+      clearedPendingVideo = true;
+    },
+    setTimeout: (callback) => {
+      retryCallback = callback;
+      return 1;
+    }
+  });
+  const matcher = new SearchAutoplay();
+  matcher.waitForPlaybackState = async () => ({ video: {}, videoId: 'expected-video' });
+  matcher.hasPlaybackActuallyStarted = () => true;
+  matcher.waitForCandidateDuration = async () => 0;
+  matcher.shouldRejectDuration = () => false;
+  matcher.isAdvertisementPlaying = () => true;
+
+  await matcher.verifyPlayback({ videoId: 'expected-video' });
+
+  assert.equal(status, 'Menunggu iklan selesai, request tetap dipertahankan');
+  assert.equal(typeof retryCallback, 'function');
+  assert.equal(clearedPendingVideo, false);
+});
+
+test('retries the same request instead of skipping when results are not ready', () => {
+  let status = '';
+  let restartCalls = 0;
+  let retryCallback;
+  const { SearchAutoplay, RequestProcessor } = loadSearchMatching({
+    DebugPanel: {
+      setStatus: (value) => {
+        status = value;
+      }
+    },
+    setPendingAutoplayVideoId: () => {},
+    setTimeout: (callback) => {
+      retryCallback = callback;
+      return 1;
+    },
+    window: {
+      location: { href: 'https://music.youtube.com/search?q=missing' }
+    }
+  });
+  RequestProcessor.getSearchTarget = () => ({ rawQuery: 'Missing - Artist' });
+  RequestProcessor.shouldAutoplayForUrl = () => true;
+  RequestProcessor.startSearchAutoplay = () => {
+    restartCalls++;
+  };
+  const matcher = new SearchAutoplay();
+  matcher.stop = () => {};
+
+  matcher.tryAlternativeMethods();
+  retryCallback();
+
+  assert.equal(status, 'Hasil belum tampil, mencoba lagi tanpa melewati request');
+  assert.equal(restartCalls, 1);
+});
+
 test('does not reject playback while video duration is still unknown', () => {
   const { SearchAutoplay } = loadSearchMatching({
     getSearchDurationSettings: () => ({ minSeconds: 90, maxSeconds: 480 })

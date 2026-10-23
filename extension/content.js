@@ -879,7 +879,7 @@ class SearchAutoplay {
       };
       bestCandidate.playElement.click();
       requestMainWorldPlayback(bestCandidate.videoId);
-      this.log(`Started exact search result videoId=${bestCandidate.videoId}`);
+      this.log(`Started YouTube search result videoId=${bestCandidate.videoId}`);
       this.verifyPlayback(this.pendingCandidate);
       this.stop();
       return;
@@ -943,10 +943,8 @@ class SearchAutoplay {
         continue;
       }
       allowedRows++;
-      if (!this.isCandidateTargetMatch(rowMeta, target)) {
-        continue;
-      }
-      matchingRows++;
+      const targetMatch = this.isCandidateTargetMatch(rowMeta, target);
+      if (targetMatch) matchingRows++;
 
       const score = this.scoreRow(rowMeta, durationSeconds, target);
       candidates.push({
@@ -954,7 +952,8 @@ class SearchAutoplay {
         score,
         durationSeconds,
         rowMeta,
-        candidateKey
+        candidateKey,
+        targetMatch
       });
     }
 
@@ -978,9 +977,10 @@ class SearchAutoplay {
 
     const best = candidates[0];
     this.log(
-      `Best candidate score=${best.score}, duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
+      `Best candidate score=${best.score}, exact=${best.targetMatch}, ` +
+      `duration=${best.durationSeconds || 0}s, title="${best.rowMeta.title}"`
     );
-    return best.score >= this.getMinimumCandidateScore(target) ? best : undefined;
+    return best;
   }
 
   findExactPlaybackTarget(row) {
@@ -1088,30 +1088,37 @@ class SearchAutoplay {
     return true;
   }
 
+  isAdvertisementPlaying() {
+    try {
+      return Boolean(document.querySelector(
+        '.video-ads.ytp-ad-module .ytp-ad-player-overlay, ' +
+        '.ytp-ad-player-overlay, .ytp-ad-simple-ad-badge, ' +
+        '#movie_player.ad-showing, .html5-video-player.ad-showing'
+      ));
+    } catch (error) {
+      return false;
+    }
+  }
+
   async waitForCandidateDuration(video, timeoutMs = 45000) {
     const deadline = Date.now() + timeoutMs;
-    const target = RequestProcessor.getSearchTarget();
-    let latestDurationSeconds = 0;
 
     while (Date.now() < deadline) {
       this.trySkipActiveAd();
 
       const durationSeconds = Math.round(Number(video?.duration || 0));
-      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
-        latestDurationSeconds = durationSeconds;
-        const songInfo = SongManager.extractSongInfo();
-        const metadataMatches = Boolean(target?.titleTokens?.length) &&
-          this.isActualPlaybackMatchingTarget(songInfo, target);
-
-        if (metadataMatches || (!target?.titleTokens?.length && this.isDurationAllowed(durationSeconds))) {
-          return durationSeconds;
-        }
+      if (
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > 0 &&
+        !this.isAdvertisementPlaying()
+      ) {
+        return durationSeconds;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    return target?.titleTokens?.length ? 0 : latestDurationSeconds;
+    return 0;
   }
 
   extractRowMeta(row, rowText) {
@@ -1142,13 +1149,6 @@ class SearchAutoplay {
     const normalizedTerm = RequestProcessor.normalizeText(term);
     if (!normalizedText || !normalizedTerm) return false;
     return ` ${normalizedText} `.includes(` ${normalizedTerm} `);
-  }
-
-  getMinimumCandidateScore(target) {
-    if (target?.titleTokens?.length) {
-      return target.artistTokens.length ? 14 : 10;
-    }
-    return 4;
   }
 
   getMatchCoverage(text, tokens = []) {
@@ -1361,15 +1361,7 @@ class SearchAutoplay {
   async verifyPlayback(candidate = null) {
     const { video, videoId } = await this.waitForPlaybackState(candidate);
     if (candidate?.videoId && videoId && videoId !== candidate.videoId) {
-      const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
-      if (candidateKey) {
-        this.rejectedCandidateKeys.add(candidateKey);
-      }
-
-      this.log(`Rejected playback videoId=${videoId}, expected=${candidate.videoId}`);
-      this.pendingCandidate = null;
-      await this.retrySearchAfterRejectedCandidate(video);
-      return;
+      this.log(`YouTube loaded videoId=${videoId}, expected=${candidate.videoId}; keeping playback`);
     }
 
     if (this.hasPlaybackActuallyStarted(candidate)) {
@@ -1387,21 +1379,22 @@ class SearchAutoplay {
         return;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      const songInfo = SongManager.extractSongInfo();
-      if (!this.isActualPlaybackMatchingTarget(songInfo)) {
-        const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
-        if (candidateKey) {
-          this.rejectedCandidateKeys.add(candidateKey);
-        }
-
-        this.log(`Rejected playing candidate due to metadata mismatch: "${songInfo.title}" - "${songInfo.artist}"`);
-        this.pendingCandidate = null;
-        await this.retrySearchAfterRejectedCandidate(video);
+      if (this.isAdvertisementPlaying()) {
+        this.log('Advertisement still playing; deferring metadata verification');
+        DebugPanel.setStatus('Menunggu iklan selesai, request tetap dipertahankan');
+        setTimeout(() => this.verifyPlayback(candidate), 3000);
         return;
       }
 
-      this.log('Playback verified successfully');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const songInfo = SongManager.extractSongInfo();
+      if (!this.isActualPlaybackMatchingTarget(songInfo)) {
+        this.log(`Metadata differs from request: "${songInfo.title}" - "${songInfo.artist}"; keeping playback`);
+        DebugPanel.setStatus('YouTube memilih hasil terdekat, lagu tetap diputar');
+      } else {
+        this.log('Playback verified successfully');
+      }
+
       this.pendingCandidate = null;
       setPendingAutoplayVideoId(null);
       RequestProcessor.clearPendingSearchUrl();
@@ -1416,34 +1409,6 @@ class SearchAutoplay {
       this.attempts = 0;
       this.start();
     }
-  }
-
-  async retrySearchAfterRejectedCandidate(video) {
-    this.stop();
-    setPendingAutoplayVideoId(null);
-
-    try {
-      if (video) {
-        video.pause();
-        video.currentTime = 0;
-      }
-    } catch (error) {
-      this.error('Failed to reset mismatched playback', error);
-    }
-
-    DebugPanel.setStatus('Hasil tidak cocok, mencari kandidat lain');
-
-    if (!this.isSearchPage(window.location.href)) {
-      const pendingSearchUrl = state.pendingSearchUrl || getPendingSearchUrl();
-      if (pendingSearchUrl) {
-        window.location.href = pendingSearchUrl;
-      } else if (window.history.length > 1) {
-        window.history.back();
-      }
-    }
-
-    this.attempts = 0;
-    setTimeout(() => this.start(), 1200);
   }
 
   async rejectCurrentPlayback(video) {
@@ -1477,14 +1442,14 @@ class SearchAutoplay {
     setPendingAutoplayVideoId(null);
 
     if (RequestProcessor.getSearchTarget()?.rawQuery) {
-      this.log('Alternative methods skipped because they cannot guarantee the requested song');
-      DebugPanel.setStatus('Tidak menemukan hasil cocok, lanjut request berikutnya', true);
-      ServerAPI.skipCurrent()
-        .then(() => {
-          RequestProcessor.clearPendingSearchUrl();
-          setTimeout(() => RequestProcessor.checkRequests(), 500);
-        })
-        .catch((error) => this.error('Failed to release unmatched request', error));
+      this.log('Search results are not ready; keeping the current request and retrying');
+      DebugPanel.setStatus('Hasil belum tampil, mencoba lagi tanpa melewati request');
+      this.attempts = 0;
+      setTimeout(() => {
+        if (RequestProcessor.shouldAutoplayForUrl(window.location.href)) {
+          RequestProcessor.startSearchAutoplay();
+        }
+      }, 3000);
       return;
     }
 
