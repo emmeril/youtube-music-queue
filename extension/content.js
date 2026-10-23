@@ -473,6 +473,11 @@ class SongManager {
   }
 
   static extractSongInfo() {
+    const mediaSessionInfo = this.extractSongInfoFromMediaSession();
+    if (mediaSessionInfo) {
+      return mediaSessionInfo;
+    }
+
     const titleSelectors = [
       'ytmusic-player-bar .title',
       'ytmusic-player-bar yt-formatted-string.title',
@@ -505,6 +510,22 @@ class SongManager {
     }
 
     return this.extractSongInfoFromPageTitle();
+  }
+
+  static extractSongInfoFromMediaSession() {
+    try {
+      const metadata = navigator.mediaSession?.metadata;
+      const title = this.cleanSongText(metadata?.title, 'title');
+      const artist = this.cleanSongText(metadata?.artist, 'artist', title);
+      if (!title && !artist) return null;
+
+      return {
+        title: title || 'Tidak diketahui',
+        artist: artist || 'Tidak diketahui'
+      };
+    } catch (error) {
+      return null;
+    }
   }
 
   static extractSongField(selectors, fieldType, title = '') {
@@ -735,6 +756,8 @@ class SearchAutoplay {
     this.pendingCandidate = null;
     this.playbackResumeAttempted = false;
     this.navigationFallbackAttempted = false;
+    this.lastSkippedAdSignature = '';
+    this.lastAdSkipButton = null;
   }
 
   isSearchPage(url = window.location.href) {
@@ -806,8 +829,8 @@ class SearchAutoplay {
 
     this.timeoutId = setTimeout(() => {
       if (this.interval) {
-        this.stop();
         this.log('Search autoplay timeout');
+        this.tryAlternativeMethods();
       }
     }, this.timeout);
   }
@@ -871,12 +894,12 @@ class SearchAutoplay {
     if (this.songFilterApplied) return false;
 
     const filterElements = Array.from(
-      document.querySelectorAll('tp-yt-paper-tab, button, yt-chip-cloud-chip-renderer')
+      document.querySelectorAll('ytmusic-chip-cloud-chip-renderer [role="tab"]')
     );
 
     const songFilter = filterElements.find((element) => {
       const text = (element.textContent || '').trim();
-      return /\b(song|songs|lagu)\b/i.test(text);
+      return /^(song|songs|lagu)$/i.test(text);
     });
 
     if (songFilter && songFilter instanceof HTMLElement) {
@@ -1008,7 +1031,7 @@ class SearchAutoplay {
       'reverb'
     ];
 
-    if (blockedTerms.some((term) => text.includes(term))) {
+    if (blockedTerms.some((term) => this.hasWholeTerm(text, term))) {
       return false;
     }
 
@@ -1029,6 +1052,66 @@ class SearchAutoplay {
       durationSeconds >= settings.minSeconds &&
       durationSeconds <= settings.maxSeconds
     );
+  }
+
+  shouldRejectDuration(durationSeconds) {
+    return Number.isFinite(durationSeconds) && durationSeconds > 0 && !this.isDurationAllowed(durationSeconds);
+  }
+
+  trySkipActiveAd() {
+    const skipButton = document.querySelector(
+      '.ytp-ad-skip-button-modern, .ytp-ad-skip-button, .ytp-ad-skip-button-slot button'
+    );
+    if (!skipButton || skipButton.disabled) return false;
+
+    let adSignature = '';
+    try {
+      const metadata = navigator.mediaSession?.metadata;
+      const badge = document.querySelector('.ytp-ad-simple-ad-badge')?.textContent || '';
+      const signatureParts = [metadata?.title || '', metadata?.artist || '', badge.trim()];
+      adSignature = signatureParts.some(Boolean) ? signatureParts.join('|') : '';
+    } catch (error) {
+      adSignature = '';
+    }
+
+    if (
+      (adSignature && adSignature === this.lastSkippedAdSignature) ||
+      (!adSignature && skipButton === this.lastAdSkipButton)
+    ) {
+      return false;
+    }
+
+    this.lastSkippedAdSignature = adSignature;
+    this.lastAdSkipButton = skipButton;
+    skipButton.click();
+    this.log('Skipped advertisement before verifying the requested song');
+    return true;
+  }
+
+  async waitForCandidateDuration(video, timeoutMs = 45000) {
+    const deadline = Date.now() + timeoutMs;
+    const target = RequestProcessor.getSearchTarget();
+    let latestDurationSeconds = 0;
+
+    while (Date.now() < deadline) {
+      this.trySkipActiveAd();
+
+      const durationSeconds = Math.round(Number(video?.duration || 0));
+      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        latestDurationSeconds = durationSeconds;
+        const songInfo = SongManager.extractSongInfo();
+        const metadataMatches = Boolean(target?.titleTokens?.length) &&
+          this.isActualPlaybackMatchingTarget(songInfo, target);
+
+        if (metadataMatches || (!target?.titleTokens?.length && this.isDurationAllowed(durationSeconds))) {
+          return durationSeconds;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    return target?.titleTokens?.length ? 0 : latestDurationSeconds;
   }
 
   extractRowMeta(row, rowText) {
@@ -1052,6 +1135,13 @@ class SearchAutoplay {
 
   getCandidateKey(meta, durationSeconds, videoId = '') {
     return [videoId, meta?.title || '', meta?.subtitle || '', durationSeconds || 0].join('|');
+  }
+
+  hasWholeTerm(text, term) {
+    const normalizedText = RequestProcessor.normalizeText(text);
+    const normalizedTerm = RequestProcessor.normalizeText(term);
+    if (!normalizedText || !normalizedTerm) return false;
+    return ` ${normalizedText} `.includes(` ${normalizedTerm} `);
   }
 
   getMinimumCandidateScore(target) {
@@ -1144,10 +1234,10 @@ class SearchAutoplay {
     ];
 
     for (const term of positiveTerms) {
-      if (text.includes(term)) score += 1;
+      if (this.hasWholeTerm(text, term)) score += 1;
     }
     for (const term of negativeTerms) {
-      if (text.includes(term)) score -= 3;
+      if (this.hasWholeTerm(text, term)) score -= 3;
     }
 
     if (target && target.titleTokens.length) {
@@ -1160,6 +1250,15 @@ class SearchAutoplay {
 
       score += Math.round(titleCoverage * 10);
       if (target.artistTokens.length > 0) score += Math.round(artistCoverage * 8);
+
+      const candidateTitle = RequestProcessor.normalizeText(meta.title || '');
+      if (candidateTitle === target.title) {
+        score += 6;
+      } else {
+        const extraTitleTokens = RequestProcessor.tokenizeForMatch(candidateTitle)
+          .filter((token) => !target.titleTokens.includes(token));
+        score -= Math.min(extraTitleTokens.length, 4);
+      }
 
       if (titleCoverage < 0.5) score -= 10;
       if (target.artistTokens.length > 0 && artistCoverage === 0) score -= 4;
@@ -1274,8 +1373,8 @@ class SearchAutoplay {
     }
 
     if (this.hasPlaybackActuallyStarted(candidate)) {
-      const actualDurationSeconds = Math.round(Number(video.duration || 0));
-      if (!this.isDurationAllowed(actualDurationSeconds)) {
+      const actualDurationSeconds = await this.waitForCandidateDuration(video);
+      if (this.shouldRejectDuration(actualDurationSeconds)) {
         const candidateKey = candidate?.candidateKey || this.pendingCandidate?.candidateKey;
         if (candidateKey) {
           this.rejectedCandidateKeys.add(candidateKey);
