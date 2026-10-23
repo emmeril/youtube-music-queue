@@ -32,6 +32,16 @@ const app = express();
 const configuredPort = Number.parseInt(process.env.PORT || '4786', 10);
 const PORT = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 4786;
 const APP_VERSION = '2.5.0';
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const INDEX_HTML_PATH = path.join(PUBLIC_DIR, 'index.html');
+const UI_ASSET_VERSION = crypto
+  .createHash('sha256')
+  .update(fs.readFileSync(path.join(PUBLIC_DIR, 'apps.js')))
+  .digest('hex')
+  .slice(0, 12);
+const INDEX_HTML = fs
+  .readFileSync(INDEX_HTML_PATH, 'utf8')
+  .replaceAll('__UI_ASSET_VERSION__', UI_ASSET_VERSION);
 
 // Konstanta
 const QUEUE_LIMIT = 100;
@@ -119,7 +129,24 @@ const AdminCredential = sequelize.define('AdminCredential', {
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.get(['/', '/index.html'], (req, res) => {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Expires: '0',
+    Pragma: 'no-cache'
+  });
+  res.type('html').send(INDEX_HTML);
+});
+app.use(express.static(PUBLIC_DIR, {
+  index: false,
+  setHeaders(res, filePath) {
+    if (filePath === path.join(PUBLIC_DIR, 'apps.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 // Middleware admin dengan sliding expiration
 function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
@@ -2566,11 +2593,6 @@ setInterval(() => {
     console.log(`[AUTH] Cleaned up ${expiredCount} expired admin session(s)`);
   }
 }, 60000);
-
-// Antarmuka web
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
 
 // Mulai server
 async function initialize() {
