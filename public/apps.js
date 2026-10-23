@@ -61,6 +61,9 @@
                 artistError: '',
                 isConnected: false,
                 isLoading: false,
+                isDataLoading: true,
+                hasLoadedData: false,
+                dataError: '',
                 isRefreshing: false,
                 showSettings: false,
                 isPageVisible: true,
@@ -84,6 +87,7 @@
                     message: '',
                     type: 'info'
                 },
+                toastTimeoutId: null,
                 
                 // Initialize
                 async init() {
@@ -161,6 +165,8 @@
                     this.adminRole = null;
                     this.adminSessionExpires = null;
                     this.showRequestScheduleModal = false;
+                    this.showAdminLogin = false;
+                    this.showPasswordManagementModal = false;
 
                     localStorage.removeItem('adminToken');
                     localStorage.removeItem('adminRole');
@@ -269,6 +275,7 @@
                 async loadData() {
                     if (this.isPollingData) return;
                     this.isPollingData = true;
+                    if (!this.hasLoadedData) this.isDataLoading = true;
                     try {
                         const headers = this.getAdminHeaders();
                         
@@ -278,6 +285,9 @@
                         ]);
                         
                         this.isConnected = statusResult.ok;
+                        this.dataError = statusResult.ok && queueResult.ok
+                            ? ''
+                            : 'Sebagian data gagal dimuat. Periksa koneksi server.';
                         
                         if (statusResult.ok) {
                             const statusData = statusResult.data || {};
@@ -286,8 +296,8 @@
                             const lockRemainingMs = Number(statusData.lockRemaining || 0);
                             this.lockRemaining = Math.round(lockRemainingMs / 1000);
                             this.lockInfo = statusData.lockInfo || this.lockInfo;
-                            this.stats.totalSongs = statusData.stats.totalSongsPlayed || 0;
-                            this.stats.totalTime = statusData.stats.totalPlayTime || 0;
+                            this.stats.totalSongs = statusData.stats?.totalSongsPlayed || 0;
+                            this.stats.totalTime = statusData.stats?.totalPlayTime || 0;
                             this.queueLimit = statusData.queueLimit || 100;
                             this.randomQueueEnabled = Boolean(statusData.randomQueueEnabled);
                             this.randomQueue = statusData.randomQueue || this.randomQueue;
@@ -315,9 +325,34 @@
                     } catch (error) {
                         console.error('Error loading data:', error);
                         this.isConnected = false;
+                        this.dataError = 'Data tidak dapat dimuat. Periksa koneksi server.';
                     } finally {
+                        this.hasLoadedData = true;
+                        this.isDataLoading = false;
                         this.isPollingData = false;
                     }
+                },
+
+                openAdminLoginModal() {
+                    this.showAdminLogin = true;
+                    this.$nextTick(() => this.$refs.adminPasswordInput?.focus());
+                },
+
+                closeAdminLoginModal() {
+                    this.showAdminLogin = false;
+                    this.adminPassword = '';
+                },
+
+                openPasswordManagementModal() {
+                    if (!this.isAdmin || this.adminRole !== 'super') return;
+                    this.showPasswordManagementModal = true;
+                    this.$nextTick(() => this.$refs.passwordRoleSelect?.focus());
+                },
+
+                closePasswordManagementModal() {
+                    this.showPasswordManagementModal = false;
+                    this.passwordManagementValue = '';
+                    this.passwordManagementConfirm = '';
                 },
 
                 // Validasi input di frontend
@@ -747,6 +782,7 @@
                     };
                     this.requestScheduleFormDirty = false;
                     this.showRequestScheduleModal = true;
+                    this.$nextTick(() => this.$refs.requestScheduleDialog?.focus());
                 },
 
                 closeRequestScheduleModal() {
@@ -826,10 +862,10 @@
                     }
 
                     const role = this.passwordManagementRole === 'super' ? 'super' : 'admin';
-                    const password = (this.passwordManagementValue || '').trim();
-                    const confirmPassword = (this.passwordManagementConfirm || '').trim();
+                    const password = this.passwordManagementValue || '';
+                    const confirmPassword = this.passwordManagementConfirm || '';
 
-                    if (!password) {
+                    if (!password.trim()) {
                         this.showToast('Isi password baru', 'error');
                         return;
                     }
@@ -858,7 +894,12 @@
                             this.passwordManagementValue = '';
                             this.passwordManagementConfirm = '';
                             this.showPasswordManagementModal = false;
-                            this.showToast(`Password ${role} diperbarui`, 'success');
+                            if (role === this.adminRole) {
+                                this.clearAdminSession();
+                                this.showToast(`Password ${role} diperbarui. Silakan masuk kembali.`, 'info');
+                            } else {
+                                this.showToast(`Password ${role} diperbarui`, 'success');
+                            }
                         } else {
                             this.handleApiFailure(result, 'Gagal memperbarui password');
                         }
@@ -1065,6 +1106,9 @@
                 
                 // Toast notification
                 showToast(message, type = 'info') {
+                    if (this.toastTimeoutId) {
+                        clearTimeout(this.toastTimeoutId);
+                    }
                     this.toast = {
                         show: true,
                         message,
@@ -1074,8 +1118,9 @@
                     // Untuk error, tambahkan durasi lebih lama
                     const duration = type === 'error' ? 5000 : 3000;
                     
-                    setTimeout(() => {
+                    this.toastTimeoutId = setTimeout(() => {
                         this.toast.show = false;
+                        this.toastTimeoutId = null;
                     }, duration);
                 }
             }

@@ -15,6 +15,13 @@ const {
 } = require('./request-schedule');
 const { getPriorityStatus } = require('./priority-policy');
 const {
+  calculateMatchConfidence,
+  generateSessionToken,
+  isBlankPassword,
+  normalizePassword,
+  timingSafeStringEqual
+} = require('./server-utils');
+const {
   DEFAULT_FAIR_RANDOM_PROFILE,
   buildFairRandomSelectionWeights,
   getRequestFairRandomProfile,
@@ -32,6 +39,7 @@ const MAX_REQUESTS_PER_ARTIST = 3;
 const ADMIN_DB_PASSWORD = process.env.ADMIN_PASSWORD || null;
 const SUPER_ADMIN_DB_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || null;
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || null;
+const BOOTSTRAP_TOKEN = process.env.BOOTSTRAP_TOKEN || null;
 const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 jam
 const SESSION_REFRESH_THRESHOLD = 60 * 60 * 1000; // 1 jam (sliding expiration)
 const MAX_HISTORY_LIMIT = 100;
@@ -55,7 +63,7 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-// ================= INISIALISASI SEQUELIZE =================
+// Inisialisasi Sequelize
 const sequelize = new Sequelize({
   dialect: 'sqlite',
   storage: path.join(dataDir, 'database.sqlite'),
@@ -113,7 +121,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ================= MIDDLEWARE ADMIN (dengan sliding expiration) =================
+// Middleware admin dengan sliding expiration
 function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
   if (!sessionToken) {
     return { ok: false, reason: 'unauthorized' };
@@ -139,8 +147,8 @@ function validateAdminSession(sessionToken, refreshLabel = 'Admin') {
 }
 
 async function validateAdminPassword(password, requiredRole = null) {
-  const normalizedPassword = normalizeInput(password);
-  if (isBlank(normalizedPassword)) {
+  const normalizedPassword = normalizePassword(password);
+  if (isBlankPassword(normalizedPassword)) {
     return { ok: false, reason: 'unauthorized' };
   }
 
@@ -208,8 +216,8 @@ async function requireAdmin(req, res, next) {
 }
 
 async function requireBridgeClient(req, res, next) {
-  const bridgeTokenHeader = normalizeInput(req.headers['x-bridge-token']);
-  if (!isBlank(BRIDGE_TOKEN) && !isBlank(bridgeTokenHeader) && timingSafeStringEqual(bridgeTokenHeader, BRIDGE_TOKEN)) {
+  const bridgeTokenHeader = normalizePassword(req.headers['x-bridge-token']);
+  if (!isBlankPassword(BRIDGE_TOKEN) && !isBlankPassword(bridgeTokenHeader) && timingSafeStringEqual(bridgeTokenHeader, BRIDGE_TOKEN)) {
     req.bridgeAuthMethod = 'bridge-token';
     return next();
   }
@@ -289,7 +297,7 @@ async function requireSuperAdmin(req, res, next) {
   next();
 }
 
-// ================= STATE MANAGEMENT =================
+// State aplikasi
 let state = {
   currentSong: {
     title: DEFAULT_UNKNOWN_TITLE,
@@ -315,7 +323,7 @@ let state = {
   originalLockDuration: 0
 };
 
-// ================= HELPER FUNCTIONS =================
+// Fungsi pendukung
 function formatDuration(ms) {
   if (!ms) return '0:00';
   const seconds = Math.round(ms / 1000);
@@ -553,29 +561,6 @@ function buildQueueWithEstimatedWait(currentRemainingSeconds = 0) {
   });
 }
 
-function calculateMatchConfidence(requestQuery, songTitle, songArtist) {
-  let confidence = 0;
-  const lowerQuery = requestQuery.toLowerCase();
-  const lowerTitle = songTitle.toLowerCase();
-  const lowerArtist = songArtist.toLowerCase();
-  
-  if (lowerTitle === lowerQuery) confidence = 100;
-  else if (lowerTitle.includes(lowerQuery) || lowerQuery.includes(lowerTitle)) confidence = 85;
-  else if (lowerArtist.includes(lowerQuery) || lowerQuery.includes(lowerArtist)) confidence = 75;
-  else {
-    const requestWords = lowerQuery.split(' ').filter(Boolean);
-    const titleWords = lowerTitle.split(' ');
-    const artistWords = lowerArtist.split(' ');
-    if (requestWords.length === 0) return 0;
-    const matchingWords = requestWords.filter(word => 
-      titleWords.some(tw => tw.includes(word)) || 
-      artistWords.some(aw => aw.includes(word))
-    );
-    confidence = Math.round((matchingWords.length / requestWords.length) * 100);
-  }
-  return confidence;
-}
-
 function sanitizeInput(text) {
   if (!text) return '';
   return text.trim().replace(/\s+/g, ' ').replace(/[<>{}]/g, '');
@@ -588,7 +573,7 @@ function normalizeComparisonText(value) {
 function normalizeSongToken(value) {
   return normalizeComparisonText(value)
     .replace(/\b(feat\.?|ft\.?|official|lyrics?|lirik|video|audio|remix|cover|live|version)\b/g, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -811,7 +796,7 @@ function sendQueueRequestFailure(res, result) {
 }
 
 function validatePasswordPolicy(password, label) {
-  if (isBlank(password)) {
+  if (isBlankPassword(password)) {
     return { ok: false, status: 400, code: 'PASSWORD_REQUIRED', message: `Password ${label} diperlukan` };
   }
   if (password.length < 4) {
@@ -866,15 +851,8 @@ function isHashedPassword(value) {
   return typeof value === 'string' && value.startsWith('scrypt$');
 }
 
-function timingSafeStringEqual(left, right) {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) return false;
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
-
 function verifyPassword(password, storedPassword) {
-  if (isBlank(password) || isBlank(storedPassword)) return false;
+  if (isBlankPassword(password) || isBlankPassword(storedPassword)) return false;
   if (!isHashedPassword(storedPassword)) {
     return timingSafeStringEqual(password, storedPassword);
   }
@@ -894,11 +872,11 @@ async function getAdminCredential(role = 'admin') {
 
 async function hasAdminCredential(role = 'admin') {
   const credential = await getAdminCredential(role);
-  return Boolean(credential && !isBlank(credential.password));
+  return Boolean(credential && !isBlankPassword(credential.password));
 }
 
 async function upsertAdminCredential(role, password) {
-  const normalizedPassword = normalizeInput(password);
+  const normalizedPassword = normalizePassword(password);
   return AdminCredential.upsert({
     role,
     password: hashPassword(normalizedPassword),
@@ -921,7 +899,7 @@ async function seedEnvAdminCredentials() {
   const credentialsToSeed = [
     { role: 'admin', password: ADMIN_DB_PASSWORD },
     { role: 'super', password: SUPER_ADMIN_DB_PASSWORD }
-  ].filter((credential) => !isBlank(credential.password));
+  ].filter((credential) => !isBlankPassword(credential.password));
 
   for (const credential of credentialsToSeed) {
     if (await hasAdminCredential(credential.role)) continue;
@@ -1409,7 +1387,7 @@ async function handleSongRequestEnqueue(req, res, options = {}) {
   });
 }
 
-// ================= FUNGSI DATABASE =================
+// Database
 async function loadData() {
   try {
     await sequelize.sync();
@@ -1461,10 +1439,17 @@ async function loadData() {
       duration: h.duration
     }));
 
-    // Jadwalkan ulang auto-unlock jika masih ada lock
+    // Jadwalkan ulang auto-unlock atau selesaikan request yang kedaluwarsa saat server mati.
     if (state.requestLockUntil > Date.now()) {
       const remaining = state.requestLockUntil - Date.now();
       scheduleAutoUnlock(remaining);
+    } else if (state.activeRequest) {
+      const recoveredAt = Date.now();
+      await releasePlaybackAndFinalizeRequest('auto_completed', { autoCompletedAt: recoveredAt });
+    } else if (state.requestLockUntil > 0 || state.requestStartTime > 0 || state.originalLockDuration > 0) {
+      resetRequestLockState();
+      stopCurrentPlayback();
+      await saveAppState();
     }
 
     // Sinkronkan signature awal agar write pertama tidak redundant
@@ -1476,11 +1461,7 @@ async function loadData() {
     console.log(`[DB] Loaded ${state.history.length} history items`);
   } catch (error) {
     console.error('Error loading data from database:', error);
-    state.requestQueue = [];
-    state.history = [];
-    lastPersistedQueueSignature = null;
-    lastPersistedHistorySignature = null;
-    lastPersistedAppStateSignature = null;
+    throw error;
   }
 }
 
@@ -1665,8 +1646,6 @@ async function persistHistoryNow() {
   }
 
   const historyToSave = state.history.slice(0, MAX_HISTORY_LIMIT);
-  await History.destroy({ where: {} });
-  
   const historyToInsert = historyToSave.map(h => ({
     id: h.id,
     song: h.song,
@@ -1675,9 +1654,12 @@ async function persistHistoryNow() {
     duration: h.duration
   }));
   
-  if (historyToInsert.length > 0) {
-    await History.bulkCreate(historyToInsert);
-  }
+  await sequelize.transaction(async (transaction) => {
+    await History.destroy({ where: {}, transaction });
+    if (historyToInsert.length > 0) {
+      await History.bulkCreate(historyToInsert, { transaction });
+    }
+  });
 
   persistenceMetrics.history.executed++;
   recordPersistenceLatency(persistenceMetrics.history, Date.now() - startedAt);
@@ -1771,16 +1753,16 @@ async function addToHistory(song, request = null) {
   await saveAppState();
 }
 
-// ================= API ENDPOINTS =================
+// Endpoint API
 app.post('/admin/login', async (req, res) => {
   const rawPassword = req.body?.password ?? req.body?.adminPassword ?? '';
-  const password = normalizeInput(rawPassword);
-  if (isBlank(password)) return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password diperlukan');
+  const password = normalizePassword(rawPassword);
+  if (isBlankPassword(password)) return sendError(res, 400, 'PASSWORD_REQUIRED', 'Password diperlukan');
   try {
     const superCredential = await getAdminCredential('super');
     const adminCredential = await getAdminCredential('admin');
-    const hasSuperAdminCredential = superCredential && !isBlank(superCredential.password);
-    const hasAdminCredential = adminCredential && !isBlank(adminCredential.password);
+    const hasSuperAdminCredential = superCredential && !isBlankPassword(superCredential.password);
+    const hasAdminCredential = adminCredential && !isBlankPassword(adminCredential.password);
 
     if (!hasSuperAdminCredential && !hasAdminCredential) {
       return sendError(
@@ -1796,7 +1778,7 @@ app.post('/admin/login', async (req, res) => {
     else if (hasAdminCredential && await validateCredentialPassword('admin', adminCredential, password)) role = 'admin';
     else return sendError(res, 401, 'INVALID_PASSWORD', 'Password salah');
 
-    const token = generateId();
+    const token = generateSessionToken();
     const session = {
       token,
       role,
@@ -1846,13 +1828,36 @@ app.post('/admin/bootstrap-super-admin', async (req, res) => {
       return sendError(res, 409, 'SUPER_ADMIN_ALREADY_CONFIGURED', 'Super Admin sudah dikonfigurasi');
     }
 
-    const password = normalizeInput(req.body?.password ?? '');
+    if (isBlankPassword(BOOTSTRAP_TOKEN)) {
+      return sendError(
+        res,
+        503,
+        'BOOTSTRAP_DISABLED',
+        'Bootstrap Super Admin dinonaktifkan. Atur BOOTSTRAP_TOKEN terlebih dahulu.'
+      );
+    }
+
+    const bootstrapTokenHeader = normalizePassword(req.headers['x-bootstrap-token']);
+    if (!timingSafeStringEqual(bootstrapTokenHeader, BOOTSTRAP_TOKEN)) {
+      return sendError(
+        res,
+        403,
+        'BOOTSTRAP_AUTH_REQUIRED',
+        'Bootstrap Super Admin memerlukan BOOTSTRAP_TOKEN yang valid.'
+      );
+    }
+
+    const password = normalizePassword(req.body?.password ?? '');
     const passwordValidation = validatePasswordPolicy(password, 'Super Admin');
     if (!passwordValidation.ok) {
       return sendError(res, passwordValidation.status, passwordValidation.code, passwordValidation.message);
     }
 
-    await upsertAdminCredential('super', password);
+    await AdminCredential.create({
+      role: 'super',
+      password: hashPassword(password),
+      updatedAtMs: Date.now()
+    });
     console.log('[AUTH] Initial Super Admin password stored in database');
 
     res.json({
@@ -1860,6 +1865,9 @@ app.post('/admin/bootstrap-super-admin', async (req, res) => {
       message: 'Super Admin pertama berhasil dibuat di database'
     });
   } catch (error) {
+    if (error?.name === 'SequelizeUniqueConstraintError') {
+      return sendError(res, 409, 'SUPER_ADMIN_ALREADY_CONFIGURED', 'Super Admin sudah dikonfigurasi');
+    }
     return sendInternalError(res, req.path, error);
   }
 });
@@ -1871,7 +1879,7 @@ app.post('/admin/set-password', requireSuperAdmin, async (req, res) => {
       return sendError(res, 400, 'INVALID_ROLE', 'Role harus admin atau super');
     }
 
-    const password = normalizeInput(req.body?.password ?? '');
+    const password = normalizePassword(req.body?.password ?? '');
     const passwordValidation = validatePasswordPolicy(password, role);
     if (!passwordValidation.ok) {
       return sendError(res, passwordValidation.status, passwordValidation.code, passwordValidation.message);
@@ -2273,7 +2281,11 @@ app.post('/song-ended', requireBridgeClient, async (req, res) => {
 });
 
 app.post('/verify-match', requireBridgeClient, (req, res) => {
-  const { title, artist } = req.body;
+  const title = normalizeSongField(req.body?.title, '');
+  const artist = normalizeSongField(req.body?.artist, '');
+  if (!title || !artist) {
+    return sendError(res, 400, 'SONG_METADATA_REQUIRED', 'Judul dan artis wajib diisi');
+  }
   if (!state.activeRequest) {
     return res.json({ isMatch: false, reason: 'No active request' });
   }
@@ -2282,8 +2294,8 @@ app.post('/verify-match', requireBridgeClient, (req, res) => {
   const requestTitle = (parsedRequest.title || state.activeRequest.query).toLowerCase();
   const requestArtist = (parsedRequest.artist || '').toLowerCase();
   const requestQuery = state.activeRequest.query.toLowerCase();
-  const songTitle = normalizeInput(title).toLowerCase();
-  const songArtist = normalizeInput(artist).toLowerCase();
+  const songTitle = title.toLowerCase();
+  const songArtist = artist.toLowerCase();
   const titleMatch = songTitle.length > 0 && (
     songTitle.includes(requestTitle) ||
     requestTitle.includes(songTitle)
@@ -2302,7 +2314,7 @@ app.post('/verify-match', requireBridgeClient, (req, res) => {
     requestQuery: state.activeRequest.query,
     songTitle: title,
     songArtist: artist,
-    confidence: calculateMatchConfidence(requestQuery, songTitle, songArtist)
+    confidence: calculateMatchConfidence(requestQuery, title, artist)
   };
   
   if (isMatch) {
@@ -2506,7 +2518,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ================= AUTO-UNLOCK TIMER =================
+// Timer auto-unlock
 setInterval(async () => {
   const now = Date.now();
   let changed = false;
@@ -2538,7 +2550,7 @@ setInterval(async () => {
   }
 }, 10000);
 
-// ================= AUTO-CLEANUP ADMIN SESSION =================
+// Pembersihan sesi admin
 setInterval(() => {
   const now = Date.now();
   let expiredCount = 0;
@@ -2555,12 +2567,12 @@ setInterval(() => {
   }
 }, 60000);
 
-// ================= SERVE WEB INTERFACE =================
+// Antarmuka web
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ================= START SERVER =================
+// Mulai server
 async function initialize() {
   await loadData();
   app.listen(PORT, () => {
@@ -2588,8 +2600,11 @@ initialize().catch(err => {
   process.exit(1);
 });
 
-// Handle shutdown gracefully
-process.on('SIGINT', async () => {
+let isShuttingDown = false;
+
+async function shutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   console.log('\n[SHUTDOWN] Shutting down server...');
   clearSongEndTimeout();
   
@@ -2602,4 +2617,7 @@ process.on('SIGINT', async () => {
   } finally {
     process.exit(0);
   }
-});
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
