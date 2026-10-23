@@ -50,6 +50,7 @@
                 requestScheduleFormDirty: false,
                 isSavingRequestSchedule: false,
                 showRequestScheduleModal: false,
+                showAddRequestModal: false,
                 newRequest: {
                     title: '',
                     artist: ''
@@ -355,6 +356,57 @@
                     this.passwordManagementConfirm = '';
                 },
 
+                openAddRequestModal() {
+                    this.showTitleError = false;
+                    this.showArtistError = false;
+                    this.titleError = '';
+                    this.artistError = '';
+                    this.showAddRequestModal = true;
+                    this.$nextTick(() => {
+                        const titleInput = this.$refs.addRequestTitleInput;
+                        if (titleInput && !titleInput.disabled) {
+                            titleInput.focus();
+                            return;
+                        }
+                        this.$refs.addRequestDialog?.focus();
+                    });
+                },
+
+                closeAddRequestModal() {
+                    if (!this.showAddRequestModal || this.isLoading) return;
+                    this.showAddRequestModal = false;
+                    this.showTitleError = false;
+                    this.showArtistError = false;
+                    this.titleError = '';
+                    this.artistError = '';
+                    this.$nextTick(() => this.$refs.addRequestTrigger?.focus());
+                },
+
+                trapModalFocus(event, dialog) {
+                    if (!dialog) return;
+
+                    const focusableElements = Array.from(dialog.querySelectorAll(
+                        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                    )).filter((element) => element.getClientRects().length > 0);
+
+                    if (focusableElements.length === 0) {
+                        event.preventDefault();
+                        dialog.focus();
+                        return;
+                    }
+
+                    const firstElement = focusableElements[0];
+                    const lastElement = focusableElements[focusableElements.length - 1];
+
+                    if (event.shiftKey && document.activeElement === firstElement) {
+                        event.preventDefault();
+                        lastElement.focus();
+                    } else if (!event.shiftKey && document.activeElement === lastElement) {
+                        event.preventDefault();
+                        firstElement.focus();
+                    }
+                },
+
                 // Validasi input di frontend
                 validateInput() {
                     // Reset error states
@@ -500,6 +552,8 @@
                                 artist: ''
                             };
                             this.priorityRequest = false;
+                            this.showAddRequestModal = false;
+                            this.$nextTick(() => this.$refs.addRequestTrigger?.focus());
                             
                             await this.loadData();
                             

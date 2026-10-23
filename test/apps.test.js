@@ -49,3 +49,28 @@ test('a newer toast cancels the previous dismissal timer', () => {
   assert.equal(state.toast.show, false);
   assert.equal(state.toastTimeoutId, null);
 });
+
+test('add song modal moves focus in and returns it to the trigger', () => {
+  const { state } = loadApp();
+  let titleFocusCount = 0;
+  let triggerFocusCount = 0;
+
+  state.$nextTick = (callback) => callback();
+  state.$refs = {
+    addRequestTitleInput: {
+      disabled: false,
+      focus() { titleFocusCount += 1; }
+    },
+    addRequestTrigger: {
+      focus() { triggerFocusCount += 1; }
+    }
+  };
+
+  state.openAddRequestModal();
+  assert.equal(state.showAddRequestModal, true);
+  assert.equal(titleFocusCount, 1);
+
+  state.closeAddRequestModal();
+  assert.equal(state.showAddRequestModal, false);
+  assert.equal(triggerFocusCount, 1);
+});
