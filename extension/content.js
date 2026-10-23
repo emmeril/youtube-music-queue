@@ -1815,284 +1815,132 @@ class ServerAPI {
   }
 }
 
-// ================= DEBUG PANEL =================
+// ================= TOOLBAR POPUP BRIDGE =================
 class DebugPanel {
-  static panel = null;
-  static content = null;
-  static isCollapsed = false;
+  static statusMessage = 'Aktif';
+  static statusIsError = false;
+  static updatedAt = Date.now();
+  static statusResetTimeoutId = null;
 
-  static create() {
-    if (this.panel) return;
-    const searchDurationSettings = getSearchDurationSettings();
-
-    this.panel = document.createElement('div');
-    this.panel.id = 'ytm-debug-panel';
-    this.panel.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: rgba(15, 15, 15, 0.95);
-      color: white;
-      padding: 15px;
-      border-radius: 12px;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      font-size: 12px;
-      z-index: 999999;
-      border: 2px solid #ff4757;
-      max-width: 380px;
-      min-width: 320px;
-      box-shadow: 0 8px 32px rgba(255, 71, 87, 0.2);
-      backdrop-filter: blur(12px);
-      transition: all 0.3s ease;
-    `;
-
-    this.panel.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 12px; height: 12px; background: #ff4757; border-radius: 50%; animation: pulse 1.5s infinite;"></div>
-          <div style="font-weight: 800; color: #ff4757; font-size: 14px; letter-spacing: 0.5px;">YT MUSIC BRIDGE</div>
-        </div>
-        <div style="display: flex; gap: 6px;">
-          <button id="debug-toggle" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Hide</button>
-          <button id="debug-refresh" style="background: #333; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px; transition: background 0.2s;">Refresh</button>
-        </div>
-      </div>
-
-      <div id="debug-content">
-      <div style="margin-bottom: 8px;">
-        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">LAGU SAAT INI</div>
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <div><strong>Judul:</strong> <span id="debug-title" style="color: #fff; font-weight: 500;">-</span></div>
-          <div><strong>Artis:</strong> <span id="debug-artist" style="color: #1e90ff;">-</span></div>
-          <div><strong>Durasi:</strong> <span id="debug-duration" style="color: #2ed573;">-</span></div>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 8px;">
-        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">STATUS</div>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div><strong>Status:</strong> <span id="debug-status" style="color: #2ed573;">Aktif</span></div>
-          <div><strong>Update:</strong> <span id="debug-time" style="color: #aaa;">${new Date().toLocaleTimeString()}</span></div>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 8px;">
-        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">SERVER</div>
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <input id="debug-server-url" type="text" spellcheck="false" value="${getServerUrl()}" placeholder="https://localhost:4786"
-            style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
-          <div style="display: flex; gap: 6px;">
-            <button id="debug-server-save" style="flex: 1; background: #16a34a; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan</button>
-            <button id="debug-server-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset</button>
-          </div>
-          <button id="debug-server-detect" style="width: 100%; background: #7c3aed; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Auto Detect</button>
-          <input id="debug-admin-secret" type="password" spellcheck="false" value="${getAdminSecret()}" placeholder="Password Super Admin"
-            style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
-          <div style="display: flex; gap: 6px;">
-            <button id="debug-admin-save" style="flex: 1; background: #286ef1; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Password</button>
-            <button id="debug-admin-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Password</button>
-          </div>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 8px;">
-        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">FILTER DURASI</div>
-        <div style="display: flex; gap: 6px; margin-bottom: 6px;">
-          <input id="debug-search-min-duration" type="number" min="1" step="1" value="${searchDurationSettings.minSeconds}" placeholder="Min detik"
-            style="flex: 1; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
-          <input id="debug-search-max-duration" type="number" min="1" step="1" value="${searchDurationSettings.maxSeconds}" placeholder="Max detik"
-            style="flex: 1; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
-        </div>
-        <div style="display: flex; gap: 6px;">
-          <button id="debug-duration-save" style="flex: 1; background: #0f766e; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Filter</button>
-          <button id="debug-duration-reset" style="flex: 1; background: #92400e; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset Filter</button>
-        </div>
-      </div>
-
-      <div>
-        <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">AKSI CEPAT</div>
-        <div style="display: flex; gap: 6px;">
-          <button id="debug-skip" style="flex: 1; background: #ffa502; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Skip Lagu</button>
-          <button id="debug-check" style="flex: 1; background: #3742fa; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Cek Request</button>
-        </div>
-      </div>
-      </div>
-
-      <style>
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.5; }
-          100% { opacity: 1; }
-        }
-
-        #debug-toggle:hover { background: #444 !important; }
-        #debug-refresh:hover { background: #444 !important; }
-        #debug-server-save:hover { background: #15803d !important; }
-        #debug-server-reset:hover { background: #4b5563 !important; }
-        #debug-server-detect:hover { background: #6d28d9 !important; }
-        #debug-duration-save:hover { background: #115e59 !important; }
-        #debug-duration-reset:hover { background: #b45309 !important; }
-        #debug-skip:hover { background: #ffb142 !important; }
-        #debug-check:hover { background: #5352ed !important; }
-      </style>
-    `;
-
-    document.body.appendChild(this.panel);
-    this.content = document.getElementById('debug-content');
-    this.setupEventListeners();
-  }
-
-  static setupEventListeners() {
-    document.getElementById('debug-toggle').addEventListener('click', () => {
-      this.isCollapsed = !this.isCollapsed;
-      if (this.content) {
-        this.content.style.display = this.isCollapsed ? 'none' : 'block';
-      }
-      document.getElementById('debug-toggle').textContent = this.isCollapsed ? 'Show' : 'Hide';
-    });
-
-    document.getElementById('debug-refresh').addEventListener('click', () => {
-      location.reload();
-    });
-
-    document.getElementById('debug-server-save').addEventListener('click', () => {
-      const input = document.getElementById('debug-server-url');
-      const rawValue = (input?.value || '').trim();
-      if (!/^https?:\/\//i.test(rawValue)) {
-        this.setStatus('URL harus diawali http:// atau https://', true);
-        return;
-      }
-
-      const normalizedUrl = rawValue.replace(/\/+$/, '');
-      try {
-        window.localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, normalizedUrl);
-      } catch (error) {
-        this.setStatus('Gagal menyimpan URL server ke storage', true);
-      }
-      input.value = normalizedUrl;
-      this.setStatus(`Server URL disimpan: ${normalizedUrl}`);
-    });
-
-    document.getElementById('debug-server-reset').addEventListener('click', () => {
-      try {
-        window.localStorage.removeItem(CONFIG.SERVER_URL_STORAGE_KEY);
-      } catch (error) {
-        this.setStatus('Gagal mereset URL server dari storage', true);
-      }
-      const input = document.getElementById('debug-server-url');
-      if (input) input.value = CONFIG.SERVER_URL;
-      this.setStatus(`Server URL kembali ke default: ${CONFIG.SERVER_URL}`);
-    });
-
-    document.getElementById('debug-server-detect').addEventListener('click', async () => {
-      const button = document.getElementById('debug-server-detect');
-      const input = document.getElementById('debug-server-url');
-      const originalLabel = button.textContent;
-      button.disabled = true;
-      button.textContent = 'Mencari...';
-
-      try {
-        const detectedUrl = await detectServerUrl();
-        if (detectedUrl) {
-          if (input) input.value = detectedUrl;
-          this.setStatus(`Server terdeteksi: ${detectedUrl}`);
-        } else {
-          this.setStatus('Server tidak ditemukan', true);
-        }
-      } catch (error) {
-        this.setStatus('Auto detect gagal', true);
-      } finally {
-        button.disabled = false;
-        button.textContent = originalLabel;
-      }
-    });
-
-    document.getElementById('debug-admin-save').addEventListener('click', () => {
-      const input = document.getElementById('debug-admin-secret');
-      const rawValue = (input?.value || '').trim();
-      const savedSecret = saveAdminSecret(rawValue);
-      if (input) input.value = savedSecret;
-      this.setStatus(savedSecret ? 'Password Super Admin disimpan' : 'Password Super Admin dihapus');
-    });
-
-    document.getElementById('debug-admin-reset').addEventListener('click', () => {
-      resetAdminSecret();
-      const input = document.getElementById('debug-admin-secret');
-      if (input) input.value = '';
-      this.setStatus('Password Super Admin direset');
-    });
-
-    document.getElementById('debug-duration-save').addEventListener('click', () => {
-      const minInput = document.getElementById('debug-search-min-duration');
-      const maxInput = document.getElementById('debug-search-max-duration');
-      const rawMin = minInput?.value || '';
-      const rawMax = maxInput?.value || '';
-
-      const parsedMin = Number.parseInt(rawMin, 10);
-      const parsedMax = Number.parseInt(rawMax, 10);
-      if (!Number.isFinite(parsedMin) || !Number.isFinite(parsedMax) || parsedMin <= 0 || parsedMax <= 0) {
-        this.setStatus('Durasi min/max harus angka lebih dari 0', true);
-        return;
-      }
-
-      const settings = saveSearchDurationSettings(parsedMin, parsedMax);
-      if (minInput) minInput.value = String(settings.minSeconds);
-      if (maxInput) maxInput.value = String(settings.maxSeconds);
-      this.setStatus(`Filter durasi disimpan: ${settings.minSeconds}s - ${settings.maxSeconds}s`);
-    });
-
-    document.getElementById('debug-duration-reset').addEventListener('click', () => {
-      const settings = resetSearchDurationSettings();
-      const minInput = document.getElementById('debug-search-min-duration');
-      const maxInput = document.getElementById('debug-search-max-duration');
-      if (minInput) minInput.value = String(settings.minSeconds);
-      if (maxInput) maxInput.value = String(settings.maxSeconds);
-      this.setStatus(`Filter durasi reset: ${settings.minSeconds}s - ${settings.maxSeconds}s`);
-    });
-
-    document.getElementById('debug-skip').addEventListener('click', async () => {
-      try {
-        await ServerAPI.skipCurrent();
-        this.setStatus('Skipping current song...');
-        setTimeout(() => RequestProcessor.checkRequests(), 1000);
-      } catch (error) {
-        this.setStatus('Skip failed', true);
-      }
-    });
-
-    document.getElementById('debug-check').addEventListener('click', () => {
-      RequestProcessor.checkRequests();
-      this.setStatus('Checking requests...');
-    });
-  }
-
-  static update(songInfo, duration) {
-    if (!this.panel) this.create();
-
-    const durationSec = Math.round(duration / 1000);
-    const minutes = Math.floor(durationSec / 60);
-    const seconds = durationSec % 60;
-
-    document.getElementById('debug-title').textContent = songInfo.title || '-';
-    document.getElementById('debug-artist').textContent = songInfo.artist || '-';
-    document.getElementById('debug-duration').textContent = `${minutes}:${seconds
-      .toString()
-      .padStart(2, '0')}`;
-    document.getElementById('debug-time').textContent = new Date().toLocaleTimeString();
+  static update() {
+    this.updatedAt = Date.now();
   }
 
   static setStatus(message, isError = false) {
-    if (!this.panel) this.create();
+    this.statusMessage = message;
+    this.statusIsError = isError;
+    this.updatedAt = Date.now();
 
-    const statusElement = document.getElementById('debug-status');
-    statusElement.textContent = message;
-    statusElement.style.color = isError ? '#ff4757' : '#2ed573';
-
-    setTimeout(() => {
-      statusElement.textContent = 'Aktif';
-      statusElement.style.color = '#2ed573';
+    if (this.statusResetTimeoutId) clearTimeout(this.statusResetTimeoutId);
+    this.statusResetTimeoutId = setTimeout(() => {
+      this.statusMessage = 'Aktif';
+      this.statusIsError = false;
+      this.updatedAt = Date.now();
+      this.statusResetTimeoutId = null;
     }, 3000);
   }
+}
+
+function getToolbarPopupState() {
+  return {
+    active: true,
+    currentSong: {
+      title: state.currentSong.title || '',
+      artist: state.currentSong.artist || '',
+      duration: state.currentSong.duration || 0,
+      timestamp: state.currentSong.timestamp || 0
+    },
+    status: {
+      message: DebugPanel.statusMessage,
+      isError: DebugPanel.statusIsError,
+      updatedAt: DebugPanel.updatedAt
+    },
+    serverUrl: getServerUrl(),
+    hasAdminSecret: Boolean(getAdminSecret()),
+    durationSettings: getSearchDurationSettings(),
+    isProcessingRequest: state.isProcessingRequest,
+    searchTarget: state.searchTarget?.rawQuery || ''
+  };
+}
+
+async function handleToolbarPopupAction(message) {
+  switch (message.action) {
+    case 'get-state':
+      break;
+    case 'save-server': {
+      const normalizedUrl = normalizeServerUrl(message.value);
+      if (!normalizedUrl) throw new Error('URL harus diawali http:// atau https://');
+      window.localStorage.setItem(CONFIG.SERVER_URL_STORAGE_KEY, normalizedUrl);
+      DebugPanel.setStatus('URL server disimpan');
+      break;
+    }
+    case 'reset-server':
+      window.localStorage.removeItem(CONFIG.SERVER_URL_STORAGE_KEY);
+      DebugPanel.setStatus('URL server kembali ke default');
+      break;
+    case 'detect-server': {
+      const detectedUrl = await detectServerUrl();
+      if (!detectedUrl) throw new Error('Server tidak ditemukan');
+      DebugPanel.setStatus('Server berhasil dideteksi');
+      break;
+    }
+    case 'save-admin': {
+      const rawSecret = typeof message.value === 'string' ? message.value.trim() : '';
+      if (!rawSecret) throw new Error('Masukkan password Super Admin');
+      saveAdminSecret(rawSecret);
+      DebugPanel.setStatus('Password Super Admin disimpan');
+      break;
+    }
+    case 'reset-admin':
+      resetAdminSecret();
+      DebugPanel.setStatus('Password Super Admin direset');
+      break;
+    case 'save-duration': {
+      const minSeconds = Number.parseInt(message.minSeconds, 10);
+      const maxSeconds = Number.parseInt(message.maxSeconds, 10);
+      if (!Number.isFinite(minSeconds) || !Number.isFinite(maxSeconds) || minSeconds <= 0 || maxSeconds <= 0) {
+        throw new Error('Durasi min/max harus angka lebih dari 0');
+      }
+      const settings = saveSearchDurationSettings(minSeconds, maxSeconds);
+      DebugPanel.setStatus(`Filter disimpan: ${settings.minSeconds}s–${settings.maxSeconds}s`);
+      break;
+    }
+    case 'reset-duration':
+      resetSearchDurationSettings();
+      DebugPanel.setStatus('Filter durasi direset');
+      break;
+    case 'skip-song':
+      await ServerAPI.skipCurrent();
+      DebugPanel.setStatus('Lagu dilewati');
+      setTimeout(() => RequestProcessor.checkRequests(), 1000);
+      break;
+    case 'check-request':
+      await RequestProcessor.checkRequests();
+      DebugPanel.setStatus('Pemeriksaan request selesai');
+      break;
+    case 'refresh-page':
+      DebugPanel.setStatus('Memuat ulang YouTube Music');
+      setTimeout(() => window.location.reload(), 100);
+      break;
+    default:
+      throw new Error('Aksi popup tidak dikenal');
+  }
+
+  return getToolbarPopupState();
+}
+
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.source !== 'ytm-bridge-popup') return false;
+
+    handleToolbarPopupAction(message)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => {
+        DebugPanel.setStatus(error?.message || 'Aksi gagal', true);
+        sendResponse({ ok: false, error: error?.message || 'Aksi gagal' });
+      });
+    return true;
+  });
 }
 
 // ================= URL MONITOR =================
@@ -2159,7 +2007,6 @@ function initialize() {
 
   runtime.videoMonitor = new VideoMonitor();
   URLMonitor.init();
-  DebugPanel.create();
 
   runtime.songUpdateIntervalId = setInterval(() => SongManager.update(), CONFIG.UPDATE_INTERVAL);
   runtime.requestCheckIntervalId = setInterval(

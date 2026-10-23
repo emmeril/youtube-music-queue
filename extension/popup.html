@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YT Music Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand-row">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>YT Music Bridge</h1>
+      </div>
+      <p class="version" id="extension-version">Chrome Extension</p>
+    </div>
+    <button class="icon-button" id="refresh-page" type="button" aria-label="Muat ulang YouTube Music" title="Muat ulang YouTube Music">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+    </button>
+  </header>
+
+  <div class="connection" id="connection-status" role="status" aria-live="polite">
+    <span class="connection-dot" aria-hidden="true"></span>
+    <span id="connection-label">Menghubungkan…</span>
+  </div>
+
+  <main id="bridge-content" hidden>
+    <section class="now-playing" aria-labelledby="now-playing-title">
+      <p class="eyebrow" id="now-playing-title">Sedang diputar</p>
+      <p class="song-title" id="song-title">Belum ada lagu</p>
+      <div class="song-meta">
+        <span id="song-artist">Tidak diketahui</span>
+        <span aria-hidden="true">•</span>
+        <span id="song-duration">0:00</span>
+      </div>
+    </section>
+
+    <div class="notice" id="activity-status" role="status" aria-live="polite">Bridge aktif</div>
+
+    <section aria-labelledby="quick-actions-title">
+      <h2 id="quick-actions-title">Aksi cepat</h2>
+      <div class="action-grid">
+        <button class="button button-warning" id="skip-song" type="button">Lewati Lagu</button>
+        <button class="button button-primary" id="check-request" type="button">Cek Request</button>
+      </div>
+    </section>
+
+    <details class="settings" id="settings-panel">
+      <summary>Pengaturan bridge</summary>
+      <div class="settings-content">
+        <fieldset>
+          <legend>Server</legend>
+          <label for="server-url">URL server</label>
+          <input id="server-url" type="url" inputmode="url" spellcheck="false" placeholder="https://music.monse.co.id">
+          <div class="button-row">
+            <button class="button button-success" id="save-server" type="button">Simpan</button>
+            <button class="button button-secondary" id="detect-server" type="button">Auto Detect</button>
+            <button class="text-button" id="reset-server" type="button">Reset</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Akses admin</legend>
+          <label for="admin-secret">Password Super Admin</label>
+          <input id="admin-secret" type="password" autocomplete="off" placeholder="Belum disimpan">
+          <p class="field-hint" id="admin-secret-state">Password belum disimpan.</p>
+          <div class="button-row">
+            <button class="button button-primary" id="save-admin" type="button">Simpan Password</button>
+            <button class="text-button" id="reset-admin" type="button">Reset</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Filter durasi</legend>
+          <div class="duration-grid">
+            <label for="duration-min">Minimum
+              <span class="input-suffix"><input id="duration-min" type="number" min="1" step="1"><span>detik</span></span>
+            </label>
+            <label for="duration-max">Maksimum
+              <span class="input-suffix"><input id="duration-max" type="number" min="1" step="1"><span>detik</span></span>
+            </label>
+          </div>
+          <div class="button-row">
+            <button class="button button-success" id="save-duration" type="button">Simpan Filter</button>
+            <button class="text-button" id="reset-duration" type="button">Reset</button>
+          </div>
+        </fieldset>
+      </div>
+    </details>
+
+    <p class="last-update">Pembaruan terakhir: <span id="last-update">–</span></p>
+  </main>
+
+  <section class="empty-state" id="unsupported-state" hidden>
+    <div class="empty-mark" aria-hidden="true">♪</div>
+    <h2>Buka YouTube Music</h2>
+    <p>Bridge berjalan pada tab YouTube Music. Buka situsnya lalu klik ikon ekstensi ini lagi.</p>
+    <button class="button button-primary button-full" id="open-youtube-music" type="button">Buka YouTube Music</button>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

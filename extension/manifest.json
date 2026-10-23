@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
   "name": "YT Music Local Bridge",
-  "version": "1.4",
+  "version": "1.5.0",
   "permissions": ["tabs"],
+  "action": {
+    "default_title": "YT Music Bridge",
+    "default_popup": "popup.html"
+  },
   "host_permissions": [
     "https://music.youtube.com/*",
     "https://music.monse.co.id/*",
