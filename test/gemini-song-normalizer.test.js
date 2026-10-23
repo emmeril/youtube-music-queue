@@ -130,6 +130,73 @@ test('reports a timeout when the Gemini request is aborted', async () => {
   assert.equal(result.reason, 'Gemini timeout');
 });
 
+test('retries HTTP 429 and 503 with exponential backoff', async () => {
+  const statuses = [429, 503, 200];
+  const delays = [];
+  let fetchCalls = 0;
+  const fetchImpl = async () => {
+    const status = statuses[fetchCalls++];
+    if (status !== 200) {
+      return {
+        ok: false,
+        status,
+        headers: { get: () => null }
+      };
+    }
+    return {
+      ok: true,
+      status,
+      json: async () => ({
+        candidates: [{
+          content: {
+            parts: [{ text: '{"title":"Numb","artist":"Linkin Park","confidence":1,"fairRandomCategory":"western","fairRandomWeight":45}' }]
+          }
+        }]
+      })
+    };
+  };
+
+  const result = await normalizeSongWithGemini({
+    title: 'Numb',
+    artist: 'Linkin Park',
+    apiKey: 'test-key',
+    fetchImpl,
+    sleepImpl: async (delay) => delays.push(delay),
+    randomImpl: () => 0
+  });
+
+  assert.equal(fetchCalls, 3);
+  assert.deepEqual(delays, [1000, 2000]);
+  assert.equal(result.usedGemini, true);
+  assert.equal(result.fairRandom.source, 'gemini');
+});
+
+test('falls back after the maximum retry attempts', async () => {
+  const delays = [];
+  let fetchCalls = 0;
+  const result = await normalizeSongWithGemini({
+    title: 'Numb',
+    artist: 'Linkin Park',
+    apiKey: 'test-key',
+    fetchImpl: async () => {
+      fetchCalls++;
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: () => null }
+      };
+    },
+    sleepImpl: async (delay) => delays.push(delay),
+    randomImpl: () => 0,
+    maxAttempts: 3
+  });
+
+  assert.equal(fetchCalls, 3);
+  assert.deepEqual(delays, [1000, 2000]);
+  assert.equal(result.usedGemini, false);
+  assert.equal(result.reason, 'Gemini HTTP 429 setelah 3 percobaan');
+});
+
 test('parses JSON wrapped in a markdown code fence', () => {
   assert.deepEqual(
     parseGeminiJson('```json\n{"title":"Numb","artist":"Linkin Park"}\n```'),
