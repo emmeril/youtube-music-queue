@@ -11,12 +11,12 @@ const contentSource = fs.readFileSync(
   'utf8'
 );
 const classStart = contentSource.indexOf('class SearchAutoplay');
-const classEnd = contentSource.indexOf('class ServerAPI');
+const classEnd = contentSource.indexOf('// ================= SERVER API');
 const matchingSource = `${contentSource.slice(classStart, classEnd)}\n` +
   'globalThis.SearchMatching = { SearchAutoplay, RequestProcessor };';
 
-function loadSearchMatching(overrides = {}) {
-  const context = { CONFIG: { SEARCH_TIMEOUT: 15000 }, ...overrides };
+function loadSearchMatching() {
+  const context = { CONFIG: { SEARCH_TIMEOUT: 15000 } };
   vm.runInNewContext(matchingSource, context);
   return context.SearchMatching;
 }
@@ -37,42 +37,4 @@ test('builds a focused search query without generic suffixes', () => {
     RequestProcessor.buildSearchQuery({ title: 'bubrah 2', artist: 'nikem', rawQuery: 'Bubrah 2 - Nikem' }),
     'bubrah 2 nikem'
   );
-});
-
-test('keeps non-Latin title and artist tokens for exact matching', () => {
-  const { RequestProcessor } = loadSearchMatching();
-  const target = RequestProcessor.extractSearchTarget({
-    query: '좋은 날 - 아이유',
-    parsedTitle: '좋은 날',
-    parsedArtist: '아이유'
-  });
-
-  assert.deepEqual(Array.from(target.titleTokens), ['좋은', '날']);
-  assert.deepEqual(Array.from(target.artistTokens), ['아이유']);
-  assert.equal(RequestProcessor.buildSearchQuery(target), '좋은 날 아이유');
-});
-
-test('releases an unmatched request when search autoplay times out', () => {
-  let timeoutCallback = null;
-  const { SearchAutoplay } = loadSearchMatching({
-    setInterval() {
-      return 1;
-    },
-    clearInterval() {},
-    setTimeout(callback) {
-      timeoutCallback = callback;
-      return 2;
-    },
-    clearTimeout() {}
-  });
-  const matcher = new SearchAutoplay();
-  let fallbackCalls = 0;
-  matcher.tryAlternativeMethods = () => {
-    fallbackCalls++;
-  };
-
-  matcher.start();
-  timeoutCallback();
-
-  assert.equal(fallbackCalls, 1);
 });

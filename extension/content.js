@@ -1,4 +1,4 @@
-// Konfigurasi
+// ================= KONFIGURASI =================
 const CONFIG = {
   SERVER_URL: 'https://music.monse.co.id',
   SERVER_URL_STORAGE_KEY: 'ytmBridgeServerUrl',
@@ -48,10 +48,10 @@ function getAdminSecret() {
 
 function saveAdminSecret(secret) {
   try {
-    const normalizedSecret = typeof secret === 'string' ? secret : '';
-    if (normalizedSecret.trim()) {
-      window.localStorage.setItem(CONFIG.ADMIN_SECRET_STORAGE_KEY, normalizedSecret);
-      return normalizedSecret;
+    const trimmedSecret = typeof secret === 'string' ? secret.trim() : '';
+    if (trimmedSecret) {
+      window.localStorage.setItem(CONFIG.ADMIN_SECRET_STORAGE_KEY, trimmedSecret);
+      return trimmedSecret;
     }
     window.localStorage.removeItem(CONFIG.ADMIN_SECRET_STORAGE_KEY);
     return '';
@@ -253,7 +253,7 @@ async function detectServerUrl() {
   return null;
 }
 
-// State aplikasi
+// ================= STATE MANAGEMENT =================
 const state = {
   currentSong: {
     title: '',
@@ -286,7 +286,7 @@ function getRuntime() {
   return window[APP_RUNTIME_KEY];
 }
 
-// Pemantauan video
+// ================= VIDEO MONITORING =================
 class VideoMonitor {
   constructor() {
     this.video = null;
@@ -443,7 +443,7 @@ class VideoMonitor {
   }
 }
 
-// Pengelola lagu
+// ================= SONG MANAGER =================
 class SongManager {
   static lastTitle = '';
   static lastArtist = '';
@@ -722,7 +722,7 @@ class SongManager {
   }
 }
 
-// Pencarian dan autoplay
+// ================= SEARCH AUTOPLAY =================
 class SearchAutoplay {
   constructor() {
     this.attempts = 0;
@@ -806,8 +806,8 @@ class SearchAutoplay {
 
     this.timeoutId = setTimeout(() => {
       if (this.interval) {
+        this.stop();
         this.log('Search autoplay timeout');
-        this.tryAlternativeMethods();
       }
     }, this.timeout);
   }
@@ -1430,7 +1430,7 @@ class SearchAutoplay {
   }
 }
 
-// Pemrosesan request
+// ================= REQUEST PROCESSOR =================
 class RequestProcessor {
   static isProcessing = false;
   static lastRequestTime = 0;
@@ -1649,10 +1649,9 @@ class RequestProcessor {
     return (value || '')
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
-      .normalize('NFC')
       .toLowerCase()
       .replace(/[()[\]{}"'`]/g, ' ')
-      .replace(/[^\p{L}\p{N}\s&]/gu, ' ')
+      .replace(/[^a-z0-9\s&]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -1663,7 +1662,7 @@ class RequestProcessor {
     const tokens = value
       .split(/\s+/)
       .map(part => part.trim())
-      .filter(part => part.length > 1 || /[^\x00-\x7F]/.test(part));
+      .filter(part => part.length > 1);
     const meaningfulTokens = tokens.filter(part => !stopWords.has(part));
     return meaningfulTokens.length ? meaningfulTokens : tokens;
   }
@@ -1680,7 +1679,7 @@ class RequestProcessor {
   }
 }
 
-// API server
+// ================= SERVER API =================
 class ServerAPI {
   static async notifySongEnded() {
     try {
@@ -1752,7 +1751,7 @@ class ServerAPI {
   }
 }
 
-// Panel debug
+// ================= DEBUG PANEL =================
 class DebugPanel {
   static panel = null;
   static content = null;
@@ -1816,14 +1815,14 @@ class DebugPanel {
       <div style="margin-bottom: 8px;">
         <div style="font-weight: 600; color: #aaa; margin-bottom: 4px;">SERVER</div>
         <div style="display: flex; flex-direction: column; gap: 6px;">
-          <input id="debug-server-url" type="text" spellcheck="false" value="" placeholder="https://localhost:4786"
+          <input id="debug-server-url" type="text" spellcheck="false" value="${getServerUrl()}" placeholder="https://localhost:4786"
             style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
           <div style="display: flex; gap: 6px;">
             <button id="debug-server-save" style="flex: 1; background: #16a34a; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan</button>
             <button id="debug-server-reset" style="flex: 1; background: #6b7280; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Reset</button>
           </div>
           <button id="debug-server-detect" style="width: 100%; background: #7c3aed; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Auto Detect</button>
-          <input id="debug-admin-secret" type="password" spellcheck="false" value="" placeholder="Password Super Admin"
+          <input id="debug-admin-secret" type="password" spellcheck="false" value="${getAdminSecret()}" placeholder="Password Super Admin"
             style="width: 100%; background: #111; color: #fff; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; font-size: 11px; outline: none;">
           <div style="display: flex; gap: 6px;">
             <button id="debug-admin-save" style="flex: 1; background: #286ef1; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s;">Simpan Password</button>
@@ -1876,8 +1875,6 @@ class DebugPanel {
 
     document.body.appendChild(this.panel);
     this.content = document.getElementById('debug-content');
-    document.getElementById('debug-server-url').value = getServerUrl();
-    document.getElementById('debug-admin-secret').value = getAdminSecret();
     this.setupEventListeners();
   }
 
@@ -1948,7 +1945,7 @@ class DebugPanel {
 
     document.getElementById('debug-admin-save').addEventListener('click', () => {
       const input = document.getElementById('debug-admin-secret');
-      const rawValue = input?.value || '';
+      const rawValue = (input?.value || '').trim();
       const savedSecret = saveAdminSecret(rawValue);
       if (input) input.value = savedSecret;
       this.setStatus(savedSecret ? 'Password Super Admin disimpan' : 'Password Super Admin dihapus');
@@ -2034,7 +2031,7 @@ class DebugPanel {
   }
 }
 
-// Pemantauan URL
+// ================= URL MONITOR =================
 class URLMonitor {
   static lastURL = '';
   static intervalId = null;
@@ -2083,7 +2080,7 @@ class URLMonitor {
   }
 }
 
-// Inisialisasi utama
+// ================= INISIALISASI UTAMA =================
 function initialize() {
   const runtime = getRuntime();
   if (runtime.initialized) {
@@ -2117,7 +2114,7 @@ function initialize() {
   DebugPanel.setStatus('Sistem aktif dan berjalan');
 }
 
-// Mulai aplikasi
+// ================= START APPLICATION =================
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initialize);
 } else {
